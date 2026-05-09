@@ -1,0 +1,21 @@
+# Normalize line endings on commit; let checkout use platform-native by default.
+* text=auto eol=lf
+
+# Shell scripts MUST be LF (CRLF breaks the bash shebang on Linux/macOS).
+*.sh text eol=lf
+
+# Windows batch files MUST be CRLF (Windows cmd is picky).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Lock files: keep as-is, never modify.
+uv.lock text eol=lf
+
+# Binary assets — never apply text transforms.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary

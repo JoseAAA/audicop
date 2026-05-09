@@ -102,16 +102,110 @@ def _huggingface_cache_root() -> Path:
     return Path.home() / ".cache" / "huggingface" / "hub"
 
 
+def _audicop_cache_root() -> Path:
+    """Return Audicop's private models directory (no symlinks, plain copies)."""
+    return Path.home() / config.AUDICOP_CACHE_SUBPATH
+
+
+def _audicop_model_dir(model_size: str) -> Path:
+    """Return the directory where a model lives in Audicop's private cache."""
+    return _audicop_cache_root() / f"Systran--faster-whisper-{model_size}"
+
+
+_SYMLINK_PROBE_RESULT: bool | None = None
+
+
+def _hf_symlinks_supported() -> bool:
+    """Probe whether we can create symlinks in HF Hub's cache directory.
+
+    Runs the test exactly once per process and caches the result. On
+    Linux/macOS this returns ``True`` immediately. On Windows it tries
+    to create a real symlink in the HF cache root; success means the
+    user has either admin, Developer Mode enabled, or the
+    ``SeCreateSymbolicLinkPrivilege`` granted by group policy.
+
+    When this returns ``False`` we route model downloads through
+    :func:`_download_model_no_symlinks` instead, which produces a plain
+    directory of copied files — no symlinks anywhere.
+    """
+    global _SYMLINK_PROBE_RESULT
+    if _SYMLINK_PROBE_RESULT is not None:
+        return _SYMLINK_PROBE_RESULT
+    if sys.platform != "win32":
+        _SYMLINK_PROBE_RESULT = True
+        return True
+
+    cache_root = _huggingface_cache_root()
+    try:
+        cache_root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        logger.debug("Could not create HF cache root", exc_info=True)
+        _SYMLINK_PROBE_RESULT = False
+        return False
+
+    src = cache_root / ".audicop_symlink_probe_src"
+    dst = cache_root / ".audicop_symlink_probe_dst"
+    try:
+        if dst.exists() or dst.is_symlink():
+            dst.unlink()
+        src.touch(exist_ok=True)
+        os.symlink(str(src), str(dst))
+        _SYMLINK_PROBE_RESULT = True
+    except OSError as exc:
+        logger.info(
+            "Symlinks not available in %s (%s); using copy-only model cache.",
+            cache_root,
+            exc,
+        )
+        _SYMLINK_PROBE_RESULT = False
+    finally:
+        for p in (dst, src):
+            try:
+                if p.is_symlink() or p.exists():
+                    p.unlink()
+            except OSError:
+                pass
+    return _SYMLINK_PROBE_RESULT
+
+
 def is_model_cached(model_size: str) -> bool:
     """Return ``True`` if the given Whisper model is already cached locally.
 
-    A best-effort check: we look for the conventional HuggingFace cache
-    path produced by ``Systran/faster-whisper-<size>``. False negatives
-    are harmless (the user just sees the "downloading" notice for a
-    model that turns out to load instantly).
+    Checks both the standard HuggingFace Hub cache and Audicop's private
+    no-symlink cache (used as fallback on restricted Windows accounts).
+    False negatives are harmless: the user just sees the "downloading"
+    notice for a model that turns out to load instantly.
     """
-    cache_dir = _huggingface_cache_root() / f"{config.HF_REPO_PREFIX}{model_size}"
-    return cache_dir.is_dir() and any(cache_dir.iterdir())
+    hf_dir = _huggingface_cache_root() / f"{config.HF_REPO_PREFIX}{model_size}"
+    if hf_dir.is_dir() and any(hf_dir.iterdir()):
+        return True
+    audicop_dir = _audicop_model_dir(model_size)
+    return audicop_dir.is_dir() and (audicop_dir / "model.bin").is_file()
+
+
+def _download_model_no_symlinks(model_size: str) -> Path:
+    """Download a faster-whisper model as plain copies (no symlinks).
+
+    Used when the standard HF cache path can't work — typically on
+    Windows accounts without symlink privilege. Idempotent: if the
+    target dir already has the model files, ``snapshot_download``
+    skips the work.
+
+    Raises:
+        TranscriptionError: If the download fails for any reason.
+    """
+    from huggingface_hub import snapshot_download
+
+    target = _audicop_model_dir(model_size)
+    target.mkdir(parents=True, exist_ok=True)
+    repo_id = config.FASTER_WHISPER_REPO_TEMPLATE.format(size=model_size)
+    try:
+        snapshot_download(repo_id=repo_id, local_dir=str(target))
+    except Exception as exc:
+        raise TranscriptionError(
+            f"No se pudo descargar el modelo {model_size!r} a la caché local ({target}): {exc}"
+        ) from exc
+    return target
 
 
 class TranscriptionError(RuntimeError):
@@ -197,6 +291,12 @@ class Transcriber:
     def load(self) -> WhisperModel:
         """Load the underlying ``WhisperModel`` if not already loaded.
 
+        On platforms where HuggingFace's symlink-based cache can't work
+        (typically restricted Windows accounts), we transparently fall
+        back to a plain-files cache under
+        ``~/.cache/audicop/models/`` — same model, no symlinks. Users
+        never see WinError 1314 anymore.
+
         Returns:
             The cached :class:`WhisperModel` instance.
 
@@ -206,18 +306,25 @@ class Transcriber:
         if self._model is not None:
             return self._model
 
+        use_local_dir = not _hf_symlinks_supported()
+        local_path: Path | None = None
+        if use_local_dir:
+            local_path = _download_model_no_symlinks(self.model_size)
+
+        model_ref = str(local_path) if local_path is not None else self.model_size
         logger.info(
-            "Cargando WhisperModel size=%s compute=%s device=%s",
-            self.model_size,
+            "Cargando WhisperModel ref=%s compute=%s device=%s (symlinks=%s)",
+            model_ref,
             self.compute_type,
             self.device,
+            not use_local_dir,
         )
         try:
             self._model = WhisperModel(
-                self.model_size,
+                model_ref,
                 device=self.device,
                 compute_type=self.compute_type,
-                download_root=self._download_root,
+                download_root=self._download_root if not use_local_dir else None,
             )
         except Exception as exc:
             raise TranscriptionError(

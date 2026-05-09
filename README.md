@@ -194,6 +194,14 @@ uv lock --upgrade                      # actualiza el lock a las últimas versio
 Es normal: `large-v3` ocupa ~3 GB. Las siguientes ejecuciones leen el
 modelo desde la caché de HuggingFace en tu disco.
 
+**Sale `WinError 1314` o "el cliente no dispone de un privilegio requerido" en Windows.**
+Audicop ya detecta este caso automáticamente: si tu cuenta de Windows no
+tiene permiso para crear enlaces simbólicos (lo típico en laptops
+corporativas con cuenta estándar), descargamos el modelo como archivos
+copiados en `~/.cache/audicop/models/`. Si aun así falla, prueba a
+borrar `~/.cache/huggingface` (puede tener una descarga parcial corrupta
+de antes) y vuelve a abrir la app.
+
 **No detecta mi GPU NVIDIA.**
 Audicop usa `nvidia-smi` para detectar la GPU. Abre una terminal y
 verifica que el comando funciona:

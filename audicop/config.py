@@ -130,6 +130,15 @@ MODEL_DOWNLOAD_SIZES_MB: Final[dict[str, int]] = {
 #   ~/.cache/huggingface/hub/models--Systran--faster-whisper-<size>
 HF_REPO_PREFIX: Final[str] = "models--Systran--faster-whisper-"
 
+# Audicop's own model cache, used when the standard HF cache cannot be
+# populated because Windows refuses symlink creation (WinError 1314 — see
+# `transcriber._hf_symlinks_supported`). Files here are plain copies, no
+# symlinks, so any user account on any Windows policy can read/write them.
+AUDICOP_CACHE_SUBPATH: Final[str] = ".cache/audicop/models"
+
+# faster-whisper repo template on HuggingFace.
+FASTER_WHISPER_REPO_TEMPLATE: Final[str] = "Systran/faster-whisper-{size}"
+
 DEFAULT_LANGUAGES: Final[tuple[str, ...]] = ("auto", "es", "en", "pt", "fr", "it", "de")
 DEFAULT_TASKS: Final[tuple[str, ...]] = ("transcribe", "translate")
 DEFAULT_BEAM_SIZE: Final[int] = 5

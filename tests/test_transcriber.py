@@ -2,7 +2,7 @@
 
 `WhisperModel` is mocked so the suite never has to download real model
 weights. We only verify our wrapper's behavior: validation, lazy load,
-segment streaming, and error mapping.
+segment streaming, error mapping, and the Windows no-symlink fallback.
 """
 
 from __future__ import annotations
@@ -19,6 +19,12 @@ from audicop.transcriber import (
     TranscriptionError,
     TranscriptSegment,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_symlink_probe() -> None:
+    """Each test starts with a fresh symlink-probe cache."""
+    transcriber._SYMLINK_PROBE_RESULT = None  # test-only: reset module-level cache
 
 
 def _wav_path(tmp_path: Path) -> Path:
@@ -173,3 +179,132 @@ def test_transcribe_handles_missing_info_fields(
     assert info.language == "unknown"
     assert info.language_probability == 0.0
     assert info.duration == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Symlink probe + no-symlink fallback (Windows)
+# ---------------------------------------------------------------------------
+
+
+def test_symlink_probe_returns_true_on_non_windows() -> None:
+    """On Linux/macOS we never run the probe — symlinks always work."""
+    with patch.object(transcriber.sys, "platform", "linux"):
+        assert transcriber._hf_symlinks_supported() is True
+
+
+def test_symlink_probe_caches_result(tmp_path: Path) -> None:
+    """The probe runs once; subsequent calls return the cached answer."""
+    fake_symlink = MagicMock()
+
+    with (
+        patch.object(transcriber.sys, "platform", "win32"),
+        patch.object(transcriber, "_huggingface_cache_root", return_value=tmp_path),
+        patch.object(transcriber.os, "symlink", fake_symlink),
+    ):
+        first = transcriber._hf_symlinks_supported()
+        second = transcriber._hf_symlinks_supported()
+
+    assert first is True
+    assert second is True
+    fake_symlink.assert_called_once()
+
+
+def test_symlink_probe_returns_false_on_windows_perm_error(tmp_path: Path) -> None:
+    """A WinError-1314-like OSError makes the probe report 'not supported'."""
+    err = OSError("[WinError 1314] required privilege not held")
+    err.winerror = 1314  # type: ignore[attr-defined]
+    fake_symlink = MagicMock(side_effect=err)
+
+    with (
+        patch.object(transcriber.sys, "platform", "win32"),
+        patch.object(transcriber, "_huggingface_cache_root", return_value=tmp_path),
+        patch.object(transcriber.os, "symlink", fake_symlink),
+    ):
+        assert transcriber._hf_symlinks_supported() is False
+
+
+def test_load_uses_local_dir_when_symlinks_unsupported(tmp_path: Path) -> None:
+    """If the probe says 'no symlinks', `load()` pre-downloads to local dir."""
+    fake_model = MagicMock()
+    download_target = tmp_path / "model_dir"
+    download_target.mkdir()
+    fake_download = MagicMock(return_value=download_target)
+
+    with (
+        patch.object(transcriber, "WhisperModel", return_value=fake_model) as ctor,
+        patch.object(transcriber, "_hf_symlinks_supported", return_value=False),
+        patch.object(transcriber, "_download_model_no_symlinks", fake_download),
+    ):
+        t = Transcriber(model_size="small", compute_type="int8", device="cpu")
+        t.load()
+
+    fake_download.assert_called_once_with("small")
+    # WhisperModel is fed the local path, not the model name string
+    args, kwargs = ctor.call_args
+    assert args[0] == str(download_target)
+    assert kwargs["device"] == "cpu"
+    assert kwargs["download_root"] is None
+
+
+def test_load_uses_model_name_when_symlinks_supported() -> None:
+    """If symlinks work, `load()` passes the model size string to WhisperModel."""
+    fake_model = MagicMock()
+    fake_download = MagicMock()
+
+    with (
+        patch.object(transcriber, "WhisperModel", return_value=fake_model) as ctor,
+        patch.object(transcriber, "_hf_symlinks_supported", return_value=True),
+        patch.object(transcriber, "_download_model_no_symlinks", fake_download),
+    ):
+        t = Transcriber(model_size="small", compute_type="int8", device="cpu")
+        t.load()
+
+    fake_download.assert_not_called()
+    args, _ = ctor.call_args
+    assert args[0] == "small"  # raw model size, HF cache will handle it
+
+
+def test_is_model_cached_checks_audicop_dir(tmp_path: Path) -> None:
+    """`is_model_cached` returns True when only the no-symlink cache has it."""
+    audicop_dir = tmp_path / "audicop_cache" / "Systran--faster-whisper-small"
+    audicop_dir.mkdir(parents=True)
+    (audicop_dir / "model.bin").write_bytes(b"not really a model")
+
+    with (
+        patch.object(transcriber, "_huggingface_cache_root", return_value=tmp_path / "hf"),
+        patch.object(transcriber, "_audicop_cache_root", return_value=tmp_path / "audicop_cache"),
+    ):
+        assert transcriber.is_model_cached("small") is True
+        assert transcriber.is_model_cached("tiny") is False
+
+
+def test_download_model_no_symlinks_calls_snapshot_download(tmp_path: Path) -> None:
+    """`_download_model_no_symlinks` calls snapshot_download with local_dir=our path."""
+    fake_snapshot = MagicMock()
+    fake_module = MagicMock()
+    fake_module.snapshot_download = fake_snapshot
+
+    with (
+        patch.object(transcriber, "_audicop_cache_root", return_value=tmp_path / "audicop"),
+        patch.dict("sys.modules", {"huggingface_hub": fake_module}),
+    ):
+        result = transcriber._download_model_no_symlinks("tiny")
+
+    fake_snapshot.assert_called_once()
+    kwargs = fake_snapshot.call_args.kwargs
+    assert kwargs["repo_id"] == "Systran/faster-whisper-tiny"
+    assert kwargs["local_dir"] == str(tmp_path / "audicop" / "Systran--faster-whisper-tiny")
+    assert result == tmp_path / "audicop" / "Systran--faster-whisper-tiny"
+
+
+def test_download_model_no_symlinks_wraps_errors(tmp_path: Path) -> None:
+    """If snapshot_download blows up we surface a TranscriptionError."""
+    fake_module = MagicMock()
+    fake_module.snapshot_download = MagicMock(side_effect=RuntimeError("network kaput"))
+
+    with (
+        patch.object(transcriber, "_audicop_cache_root", return_value=tmp_path / "audicop"),
+        patch.dict("sys.modules", {"huggingface_hub": fake_module}),
+        pytest.raises(TranscriptionError, match="No se pudo descargar"),
+    ):
+        transcriber._download_model_no_symlinks("tiny")

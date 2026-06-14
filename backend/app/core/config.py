@@ -25,7 +25,7 @@ SUPPORTED_EXTENSIONS: Final[tuple[str, ...]] = AUDIO_EXTENSIONS + VIDEO_EXTENSIO
 """All extensions accepted by the file uploader."""
 
 MAX_UPLOAD_MB: Final[int] = 2000
-"""Maximum upload size in megabytes (mirrors `.streamlit/config.toml`).
+"""Upload size shown to the user in the UI (megabytes).
 
 2 GB covers comfortably any audio of up to 3 hours plus moderate-bitrate
 video. For larger files (HD video > 2 GB) the user should switch to the
@@ -174,7 +174,7 @@ VRAM_FREE_LOW_GB: Final[float] = 2.5
 RAM_AVAILABLE_HIGH_GB: Final[float] = 6.0
 """Available RAM (GB) above which we run small (int8) on CPU.
 
-`small` int8 needs ~3 GB working set including audio buffers + Streamlit.
+`small` int8 needs ~3 GB working set including audio buffers + server.
 """
 
 RAM_AVAILABLE_MID_GB: Final[float] = 3.0

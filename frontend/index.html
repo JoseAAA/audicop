@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Audicop — Transcribe audio y vídeo</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>🎙️ Audicop</h1>
+      <p class="tagline">Suelta cualquier audio o vídeo. Recibe el texto, con marcas de tiempo, y analízalo con IA.</p>
+    </header>
+
+    <main class="container">
+      <!-- Status banner (hardware + recommendation) -->
+      <section id="status-banner" class="banner banner--loading">
+        <span class="banner__icon">⏳</span>
+        <span class="banner__text">Detectando tu equipo…</span>
+      </section>
+      <details id="hw-details" class="details" hidden>
+        <summary>Ver detalles del sistema y por qué se eligió este modelo</summary>
+        <div id="hw-details-body" class="details__body"></div>
+      </details>
+
+      <!-- Step 1: Upload -->
+      <section class="step" id="step-upload">
+        <div class="step__head"><span class="step__num">1</span><h2>Sube tu archivo</h2></div>
+
+        <div class="tabs">
+          <button class="tab is-active" data-tab="upload">📤 Subir archivo</button>
+          <button class="tab" data-tab="local">📁 Archivo local (vídeos grandes)</button>
+        </div>
+
+        <div class="tab-panel is-active" data-panel="upload">
+          <label id="dropzone" class="dropzone" for="file-input">
+            <input id="file-input" type="file" hidden
+                   accept=".mp3,.wav,.m4a,.ogg,.flac,.aac,.mp4,.mkv,.mov,.avi,.webm" />
+            <span class="dropzone__icon">📤</span>
+            <span class="dropzone__title">Arrastra aquí o haz clic para elegir</span>
+            <span class="dropzone__hint" id="upload-hint">audio o vídeo · hasta 2 GB</span>
+          </label>
+        </div>
+
+        <div class="tab-panel" data-panel="local">
+          <p class="muted">
+            Pega la <strong>ruta absoluta</strong>. Audicop lee del disco — sin subida,
+            sin límite de tamaño. Funciona porque la app corre en tu equipo.
+          </p>
+          <input id="path-input" class="text-input" type="text"
+                 placeholder="C:\Users\tu_usuario\Videos\reunion.mp4" />
+        </div>
+
+        <div id="file-chosen" class="chosen" hidden></div>
+      </section>
+
+      <!-- Step 2: Transcribe -->
+      <section class="step is-disabled" id="step-transcribe">
+        <div class="step__head"><span class="step__num">2</span><h2>Transcribe</h2></div>
+
+        <details class="details">
+          <summary>⚙️ Opciones (idioma, acción, modo avanzado)</summary>
+          <div class="options-grid">
+            <label>Idioma del audio
+              <select id="opt-language"></select>
+            </label>
+            <label>Acción
+              <select id="opt-task"></select>
+            </label>
+            <label class="checkbox">
+              <input id="opt-vad" type="checkbox" checked />
+              Saltar silencios automáticamente
+            </label>
+          </div>
+          <details class="details details--nested">
+            <summary>🛠️ Modo avanzado (forzar modelo)</summary>
+            <div class="options-grid">
+              <label>Modelo <select id="opt-model"></select></label>
+              <label>Cómputo <select id="opt-compute"></select></label>
+              <label>Dispositivo <select id="opt-device"></select></label>
+            </div>
+          </details>
+        </details>
+
+        <button id="btn-transcribe" class="btn btn--primary btn--block" disabled>
+          ▶ Transcribir
+        </button>
+
+        <div id="progress-wrap" class="progress-wrap" hidden>
+          <div class="progress"><div id="progress-bar" class="progress__bar"></div></div>
+          <p id="progress-label" class="muted">Preparando…</p>
+          <div id="live-text" class="live-text"></div>
+        </div>
+        <div id="transcribe-error" class="alert alert--error" hidden></div>
+      </section>
+
+      <!-- Step 3: Result -->
+      <section class="step is-disabled" id="step-result">
+        <div class="step__head"><span class="step__num">3</span><h2>Resultado</h2></div>
+        <p id="result-meta" class="muted"></p>
+
+        <div class="tabs">
+          <button class="tab is-active" data-rtab="plain">📄 Texto</button>
+          <button class="tab" data-rtab="ts">⏱️ Con tiempos</button>
+          <button class="tab" data-rtab="export">⬇️ Exportar</button>
+        </div>
+
+        <div class="tab-panel is-active" data-rpanel="plain">
+          <button class="btn btn--ghost btn--copy" data-copy="plain">📋 Copiar</button>
+          <pre id="out-plain" class="output"></pre>
+        </div>
+        <div class="tab-panel" data-rpanel="ts">
+          <button class="btn btn--ghost btn--copy" data-copy="ts">📋 Copiar</button>
+          <pre id="out-ts" class="output"></pre>
+        </div>
+        <div class="tab-panel" data-rpanel="export">
+          <p class="muted">Descarga en el formato que necesites.</p>
+          <div class="row">
+            <button class="btn btn--ghost" data-dl="txt">📄 .txt</button>
+            <button class="btn btn--ghost" data-dl="srt">🎬 .srt</button>
+            <button class="btn btn--ghost" data-dl="vtt">🌐 .vtt</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 4: AI -->
+      <section class="step is-disabled" id="step-ai">
+        <div class="step__head"><span class="step__num">4</span><h2>Analiza con IA <span class="optional">(opcional)</span></h2></div>
+        <p class="muted">Resume, saca tareas o pregunta lo que quieras. Usa tu propia API key (gratis en Gemini).</p>
+
+        <div class="options-grid">
+          <label>Proveedor <select id="ai-provider"></select></label>
+          <label>Modelo <select id="ai-model"></select></label>
+          <label>API key
+            <input id="ai-key" class="text-input" type="password"
+                   placeholder="Solo en memoria; no se guarda" autocomplete="off" />
+          </label>
+        </div>
+        <p id="ai-key-help" class="muted small"></p>
+
+        <div class="alert alert--warn">
+          ⚠️ Al usar el chat, el <strong>texto</strong> de la transcripción se envía al
+          proveedor elegido con tu API key. El audio nunca sale de tu equipo.
+        </div>
+
+        <div class="row" id="quick-actions"></div>
+
+        <div id="chat-log" class="chat-log"></div>
+        <form id="chat-form" class="chat-form">
+          <input id="chat-input" class="text-input" type="text"
+                 placeholder="Pregunta sobre el audio… (cita momentos como [12:34])" autocomplete="off" />
+          <button class="btn btn--primary" type="submit">Enviar</button>
+        </form>
+      </section>
+
+      <details class="details privacy">
+        <summary>🔒 Privacidad — qué hace y qué NO hace Audicop</summary>
+        <div class="details__body">
+          <p><strong>La transcripción es 100% local.</strong> Tu audio nunca sale del equipo.
+          La única red para transcribir es la descarga inicial del modelo (una vez).</p>
+          <p><strong>El chat con IA es la excepción:</strong> envía el texto al proveedor que
+          elijas con tu API key. El audio nunca se sube; la key vive solo en memoria.</p>
+          <p>Sin telemetría, sin analytics, sin acceso a micrófono/webcam/portapapeles.</p>
+        </div>
+      </details>
+    </main>
+
+    <footer class="app-footer">
+      <span>Audicop · 100% local · <a href="https://github.com/JoseAAA/audicop" target="_blank" rel="noopener">GitHub</a></span>
+    </footer>
+
+    <div id="toast" class="toast" hidden></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

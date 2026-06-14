@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
 # Audicop launcher (Linux / macOS).
-# One-step setup: auto-installs `uv` if missing, syncs deps, starts Streamlit.
+# One-step setup: auto-installs `uv` if missing, syncs deps, starts the server.
 # Auto-detects an NVIDIA GPU and pulls in the CUDA libs when present.
+# No Docker, no Node — a single local uvicorn process serves API + frontend.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd)"
 cd "${REPO_ROOT}"
 
+PORT="${PORT:-8000}"
+URL="http://localhost:${PORT}"
+
 resolve_uv() {
     if command -v uv >/dev/null 2>&1; then
-        UV=(uv); return 0
+        UV=(uv)
+        return 0
     fi
     for py in python3 python; do
         if command -v "$py" >/dev/null 2>&1 && "$py" -m uv --version >/dev/null 2>&1; then
-            UV=("$py" -m uv); return 0
+            UV=("$py" -m uv)
+            return 0
         fi
     done
     return 1
@@ -51,5 +57,11 @@ fi
 echo "==> Sincronizando dependencias (la primera vez tarda; luego es instantáneo)…"
 "${UV[@]}" sync "${SYNC_ARGS[@]}"
 
-echo "==> Lanzando Audicop en http://localhost:8501"
-exec "${UV[@]}" run streamlit run audicop/app.py "$@"
+# Open the browser shortly after the server comes up.
+( sleep 2
+  if command -v xdg-open >/dev/null 2>&1; then xdg-open "${URL}"
+  elif command -v open >/dev/null 2>&1; then open "${URL}"
+  fi ) >/dev/null 2>&1 &
+
+echo "==> Lanzando Audicop en ${URL}"
+exec "${UV[@]}" run uvicorn app.main:app --host 127.0.0.1 --port "${PORT}"

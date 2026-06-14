@@ -9,9 +9,14 @@
 ## §1. Qué es Audicop
 
 App web **local** para transcribir y traducir audio y vídeo, escrita en Python
-con **Streamlit** + **faster-whisper**. El usuario clona, ejecuta un script y
-transcribe en minutos, **sin configurar nada**: la app autodetecta el hardware
-y elige modelo y parámetros.
+con **FastAPI** (backend) + un **frontend propio HTML/CSS/JS vanilla** +
+**faster-whisper** (motor). El usuario clona, ejecuta un script y transcribe en
+minutos, **sin configurar nada**: la app autodetecta el hardware y elige modelo
+y parámetros.
+
+Es **un solo proceso local** (uvicorn sirve API + frontend en localhost).
+**Sin Docker, sin Node, sin build** — esa simplicidad es deliberada (era la razón
+de usar Streamlit antes; ahora la conservamos con uvicorn).
 
 La **función principal es transcribir**. Todo lo demás (timestamps, export,
 chat IA) es valor añadido y no debe estorbar ese flujo.
@@ -29,8 +34,9 @@ chat IA) es valor añadido y no debe estorbar ese flujo.
    wheels PyPI. Nada de `apt`/`brew`/CUDA toolkit del sistema.
 4. **UI en español, código en inglés.** Identifiers, docstrings y comentarios en
    inglés (estándar OSS). Todo lo que ve el usuario, en español.
-5. **API keys solo en memoria.** Las keys de IA viven en `st.session_state`.
-   Nunca se escriben a disco, nunca se loguean, input siempre `type="password"`.
+5. **API keys solo en memoria.** Las keys de IA viven en la memoria del navegador
+   y se mandan por request; el backend es stateless con ellas. Nunca se escriben a
+   disco, nunca se loguean, input siempre `type="password"`.
 6. **Fácil para no-técnicos.** Si una pantalla necesita un manual, está mal
    diseñada. Lee `DESIGN.md`.
 
@@ -52,26 +58,38 @@ ya transcrito, y solo si el usuario lo usa activamente.
 
 ---
 
-## §4. Arquitectura (por módulo)
+## §4. Arquitectura (frontend / backend, por capas)
 
 ```
-audicop/
-├── config.py        Constantes: formatos, tabla de modelos, IA, export. Sin lógica.
-├── hardware.py      detect_hardware() → HardwareInfo (psutil + nvidia-smi).
-├── recommender.py   recommend(hw) → ModelChoice (memoria LIBRE, no total).
-├── audio.py         to_wav_16k() vía ffmpeg empaquetado. Limpieza de temporales.
-├── transcriber.py   Wrapper de WhisperModel. DLL CUDA en Windows. Fallback sin symlinks.
-├── formatting.py    Segments → texto plano / timestamped / SRT / VTT. Funciones puras.
-├── prompts/         Paquete: __init__.py carga los .md editables (system, context, actions/*).
-├── llm.py           Cliente agnóstico (OpenAI/Gemini), streaming, BYO key.
-├── ui.py            Componentes Streamlit. Presentación, sin lógica de negocio.
-└── app.py           Entry point delgado: orquesta módulos + session_state.
+backend/app/
+├── core/config.py       Constantes: formatos, tabla de modelos, IA, export. Sin lógica.
+├── adapters/            Drivers finos sobre integraciones externas:
+│   ├── hardware.py        detect_hardware() → HardwareInfo (psutil + nvidia-smi).
+│   ├── audio.py           to_wav_16k() vía ffmpeg empaquetado + limpieza.
+│   ├── transcriber.py     Wrapper de WhisperModel. DLL CUDA Windows. Fallback sin symlinks.
+│   └── llm.py             Cliente agnóstico (OpenAI/Gemini), streaming, BYO key.
+├── services/            Lógica de negocio pura (testeable):
+│   ├── recommender.py     recommend(hw) → ModelChoice (memoria LIBRE, no total).
+│   ├── formatting.py      Segments → texto plano / timestamped / SRT / VTT.
+│   └── pipeline.py        iter_transcription() → stream de eventos; cache de Transcriber.
+├── api/                 Rutas FastAPI (capa I/O):
+│   ├── hardware.py        GET /api/hardware
+│   ├── transcribe.py      POST /api/transcribe + GET .../events (SSE)
+│   └── chat.py            POST /api/chat (SSE)
+├── prompts/             Paquete: __init__.py carga los .md editables (system, context, actions/*).
+└── main.py              FastAPI: monta routers + sirve frontend/.
+
+frontend/                Estático, vanilla, offline (sin Node/CDN):
+├── index.html, styles.css ("Slate"), app.js (fetch + SSE)
 ```
 
-Flujo: **Upload/Path → ffmpeg → faster-whisper → segments → UI → (IA opcional)**.
+Flujo: **Frontend → API → services/adapters → ffmpeg / faster-whisper / LLM**,
+con progreso por SSE. `api/` y `main.py` son la capa I/O; la lógica testeable
+vive en `services/` y `adapters/`.
 
-`app.py` y `ui.py` son la capa de presentación. La lógica testeable vive en los
-otros módulos.
+**Streaming de progreso:** el decode bloqueante corre en un thread; cada evento
+se publica en una `asyncio.Queue` (`call_soon_threadsafe`) que el endpoint SSE
+drena al navegador. Jobs en un dict en memoria (single-user local).
 
 ---
 
@@ -85,8 +103,9 @@ otros módulos.
 - **`pathlib.Path`**, no `os.path`.
 - **Dataclasses** para estructuras (`HardwareInfo`, `ModelChoice`, `TranscriptSegment`…).
 - **Manejo de errores**: nunca dejar que un fallo de ffmpeg/CUDA/IO/IA reviente
-  la app. Capturar, loguear, mostrar `st.error()` amable con el siguiente paso.
-- Constantes en `config.py`; nada de magic numbers en la lógica.
+  la app. Capturar, loguear, devolver un error amable (HTTP o evento SSE
+  `{"type":"error"}`) con el siguiente paso.
+- Constantes en `core/config.py`; nada de magic numbers en la lógica.
 - Sin código muerto, sin imports sin usar, sin `# type: ignore` salvo motivo
   comentado.
 
@@ -97,27 +116,32 @@ otros módulos.
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy audicop/hardware.py audicop/recommender.py audicop/audio.py \
-            audicop/transcriber.py audicop/formatting.py audicop/llm.py \
-            audicop/prompts/__init__.py
-uv run pytest --cov            # ≥ 80% en módulos no-UI
+uv run mypy backend/app/core/config.py backend/app/adapters/*.py \
+            backend/app/services/*.py backend/app/prompts/__init__.py
+uv run pytest --cov            # ≥ 80% en módulos no-API
 ```
 
 - **uv** gestiona Python y dependencias. `uv.lock` es la fuente de verdad de
   versiones (hash-verificado). No hay `requirements.txt`.
-- mypy estricto en módulos de lógica; `app.py`/`ui.py` exentos (Streamlit no
-  juega bien con mypy).
+- mypy estricto en `core`/`adapters`/`services`/`prompts`; `api/` y `main.py`
+  exentos (capa I/O), cubiertos por tests de `TestClient`.
 
 ---
 
 ## §7. Dependencias
 
-Stack base: `streamlit`, `faster-whisper`, `imageio-ffmpeg`, `psutil`.
+Stack base: `fastapi`, `uvicorn[standard]`, `python-multipart`,
+`faster-whisper`, `imageio-ffmpeg`, `psutil`, `openai`, `google-genai`.
+(Las libs de IA van en base a propósito: `uv sync` poda lo que no esté en los
+extras activos, así que un extra opcional se desinstalaría en cada arranque y el
+chat se rompería. Son ligeras, no como torch.)
+
 Extras opcionales:
 - `cuda` = `nvidia-cublas-cu12`, `nvidia-cudnn-cu12` (el launcher las instala
   solo si detecta `nvidia-smi`).
-- `ai` = `openai`, `google-genai` (chat/análisis con IA).
 - `dev` = `ruff`, `mypy`, `pytest`, `pytest-cov`.
+
+Frontend: **cero dependencias** (vanilla, sin Node/CDN).
 
 **Pregunta antes de añadir cualquier dependencia fuera de esta lista.**
 

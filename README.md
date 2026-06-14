@@ -4,7 +4,7 @@
 > analízalo con IA. Todo local, sin configurar nada.
 
 [![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
-[![Streamlit](https://img.shields.io/badge/built%20with-Streamlit-FF4B4B.svg)](https://streamlit.io/)
+[![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![faster-whisper](https://img.shields.io/badge/engine-faster--whisper-0f172a.svg)](https://github.com/SYSTRAN/faster-whisper)
 [![uv](https://img.shields.io/badge/deps-uv-2563eb.svg)](https://docs.astral.sh/uv/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -13,6 +13,9 @@ App web **local** que transcribe y traduce audio/vídeo con Whisper. Autodetecta
 tu hardware y elige el mejor modelo que tu equipo puede correr — sin que tengas
 que pensarlo. Además te da timestamps estilo YouTube, export a SRT/VTT y un chat
 con IA (tu propia API key) para resumir y analizar lo dicho.
+
+Es **un solo proceso local** (FastAPI + uvicorn sirviendo un frontend propio).
+**Sin Docker, sin Node, sin build** — doble clic y listo.
 
 ---
 
@@ -43,7 +46,7 @@ con IA (tu propia API key) para resumir y analizar lo dicho.
    de cada paso.
 3. **Espera 5–10 minutos** la primera vez (instala todo y descarga el modelo).
    Las siguientes veces arranca en segundos.
-4. Se abre tu navegador en `http://localhost:8501`. **Listo.**
+4. Se abre tu navegador en `http://localhost:8000`. **Listo.**
 
 ### macOS / Linux
 
@@ -84,17 +87,20 @@ cd audicop
 ## 🧠 Cómo funciona
 
 ```
-┌──────────────┐   ┌───────────┐   ┌──────────────────┐   ┌──────────┐   ┌──────────────┐
-│ Subir / Ruta │ → │  ffmpeg   │ → │  faster-whisper  │ → │ Segments │ → │  UI: texto,  │
-│  audio/vídeo │   │ 16kHz mono│   │   (CTranslate2)  │   │ + tiempos│   │ SRT/VTT, IA  │
-└──────────────┘   └───────────┘   └──────────────────┘   └──────────┘   └──────────────┘
-        (local)        (local)            (local)                          (IA = opcional, nube)
+ Navegador (frontend vanilla)          Backend (FastAPI · uvicorn, local)
+┌───────────────────────────┐  HTTP   ┌───────────────────────────────────────┐
+│ Subir / Ruta → progreso    │ ─────▶  │ ffmpeg → faster-whisper → segments      │
+│ (SSE en vivo) → resultado  │ ◀─SSE─  │ (16kHz mono)   (CTranslate2)            │
+│ → chat IA                  │         │ chat → OpenAI/Gemini (tu key)           │
+└───────────────────────────┘         └───────────────────────────────────────┘
+       (todo local salvo el chat IA y la descarga inicial del modelo)
 ```
 
 1. Subes un archivo (≤ 2 GB) o pegas una ruta local (sin límite de tamaño).
-2. El ffmpeg empaquetado extrae el audio a 16 kHz mono.
-3. faster-whisper decodifica y emite segmentos con marcas de tiempo.
-4. La UI los muestra (texto / timestamps / export) y ofrece el chat con IA.
+2. El backend extrae el audio a 16 kHz mono con el ffmpeg empaquetado.
+3. faster-whisper decodifica y va emitiendo segmentos; el progreso llega al
+   navegador en vivo por SSE.
+4. El frontend los muestra (texto / timestamps / export) y ofrece el chat con IA.
 5. Los temporales se borran al terminar.
 
 ---
@@ -190,17 +196,18 @@ Detalle completo en [AGENTS.md](AGENTS.md) §3.
 
 | Capa            | Tecnología                                              |
 |-----------------|---------------------------------------------------------|
-| UI              | Streamlit (tema "Slate" oscuro — ver [DESIGN.md](DESIGN.md)) |
+| Backend         | FastAPI + uvicorn (un solo proceso local)               |
+| Frontend        | HTML/CSS/JS vanilla, tema "Slate" — ver [DESIGN.md](DESIGN.md) (sin Node) |
 | Motor ASR       | faster-whisper (CTranslate2) · modelo Whisper de OpenAI |
 | Audio           | imageio-ffmpeg (binario empaquetado)                    |
 | Hardware        | psutil + nvidia-smi                                     |
 | GPU (opcional)  | nvidia-cublas-cu12 + nvidia-cudnn-cu12                  |
-| IA (opcional)   | openai + google-genai (bring-your-own-key)              |
+| IA              | openai + google-genai (bring-your-own-key)              |
 | Tooling         | uv · ruff · mypy · pytest                               |
 
 Créditos: [faster-whisper](https://github.com/SYSTRAN/faster-whisper),
 [Whisper](https://github.com/openai/whisper) (OpenAI),
-[Streamlit](https://streamlit.io/), [uv](https://docs.astral.sh/uv/).
+[FastAPI](https://fastapi.tiangolo.com/), [uv](https://docs.astral.sh/uv/).
 
 ---
 

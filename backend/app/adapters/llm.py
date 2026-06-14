@@ -1,7 +1,7 @@
 """Provider-agnostic LLM client for the transcript chat/analysis.
 
-Bring-your-own-key: the user supplies an API key (kept only in Streamlit
-session state) and picks a provider + model. Supported providers are
+Bring-your-own-key: the user supplies an API key (kept only in the
+browser, sent per request) and picks a provider + model. Supported providers are
 OpenAI and Google Gemini. Each provider SDK is imported lazily inside its
 ``_stream_*`` function as a safety net, so a broken/partial install
 degrades to a clear message instead of crashing the whole app.

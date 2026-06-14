@@ -67,8 +67,7 @@ def get_transcriber(model_size: str, compute_type: str, device: str) -> Transcri
     """Return a cached :class:`Transcriber`, loading the model on first use.
 
     Caching by ``(model, compute, device)`` avoids reloading multi-GB
-    weights on every request — the equivalent of Streamlit's
-    ``st.cache_resource``.
+    weights on every request.
     """
     key = (model_size, compute_type, device)
     transcriber = _TRANSCRIBER_CACHE.get(key)

@@ -6,6 +6,8 @@ from dataclasses import asdict
 
 from fastapi import APIRouter
 
+from app import prompts
+from app.adapters import llm
 from app.adapters.hardware import detect_hardware
 from app.core import config
 from app.services.recommender import recommend
@@ -35,5 +37,14 @@ def get_hardware() -> dict[str, object]:
             "model_sizes": list(config.VALID_MODEL_SIZES),
             "compute_types": list(config.VALID_COMPUTE_TYPES),
             "supported_extensions": list(config.SUPPORTED_EXTENSIONS),
+        },
+        "ai": {
+            "provider_labels": dict(llm.PROVIDER_LABELS),
+            "models_by_provider": {k: list(v) for k, v in llm.MODELS_BY_PROVIDER.items()},
+            "api_key_help": dict(llm.API_KEY_HELP),
+            "default_provider": "gemini",
+            "quick_actions": [
+                {"label": a.label, "prompt": a.prompt} for a in prompts.QUICK_ACTIONS
+            ],
         },
     }

@@ -2,12 +2,12 @@
 
 The wrapper has two responsibilities:
 
-1. Lazily load (and cache) the underlying ``WhisperModel`` so we do not
-   reload weights on every Streamlit rerun.
-2. Yield decoded segments incrementally so the UI can stream them and
-   update the progress bar based on ``segment.end / total_duration``.
+1. Lazily load the underlying ``WhisperModel`` (the pipeline caches the
+   instance so weights are not reloaded on every request).
+2. Yield decoded segments incrementally so the pipeline can stream them
+   and report progress based on ``segment.end / total_duration``.
 
-It deliberately knows nothing about Streamlit; the UI layer adapts the
+It deliberately knows nothing about the web layer; the pipeline adapts the
 generator returned by :meth:`Transcriber.transcribe`.
 
 On Windows we patch the DLL search path before importing

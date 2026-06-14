@@ -1,12 +1,14 @@
 @echo off
 REM Audicop launcher (Windows).
-REM One-step setup: auto-installs `uv` if missing, syncs deps, starts Streamlit.
+REM One-step setup: auto-installs `uv` if missing, syncs deps, starts the server.
 REM Auto-detects an NVIDIA GPU and pulls in the CUDA libs when present.
+REM No Docker, no Node -- a single local uvicorn process serves API + frontend.
 setlocal ENABLEDELAYEDEXPANSION
 
 set "SCRIPT_DIR=%~dp0"
 pushd "%SCRIPT_DIR%.." >nul
 set "REPO_ROOT=%CD%"
+if "%PORT%"=="" set "PORT=8000"
 
 call :resolve_uv
 if "%UV_CMD%"=="" (
@@ -54,8 +56,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo ==^> Lanzando Audicop en http://localhost:8501
-%UV_CMD% run streamlit run audicop\app.py %*
+echo ==^> Lanzando Audicop en http://localhost:%PORT%
+REM Open the browser shortly after the server comes up.
+start "" cmd /c "timeout /t 3 >nul & start "" http://localhost:%PORT%"
+%UV_CMD% run uvicorn app.main:app --host 127.0.0.1 --port %PORT%
 set EXITCODE=%ERRORLEVEL%
 popd
 exit /b %EXITCODE%

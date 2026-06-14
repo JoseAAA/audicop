@@ -77,5 +77,5 @@ Thumbs.db
 .dmypy.json
 dmypy.json
 
-# Streamlit
-.streamlit/secrets.toml
+# Audicop runtime
+.cache/

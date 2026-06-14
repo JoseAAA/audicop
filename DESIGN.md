@@ -1,116 +1,121 @@
 # 🎨 Sistema de diseño — Audicop "Slate"
 
-> Fuente de verdad visual del proyecto. Antes de añadir o cambiar UI, lee esto.
-> Audicop usa **Streamlit**, no Tailwind/Next.js — así que "Slate" se aplica con
-> el tema nativo de Streamlit + disciplina de componentes, no con clases CSS.
+> Fuente de verdad visual del proyecto. Antes de tocar la UI, lee esto.
+> El frontend es **HTML/CSS/JS vanilla** servido por FastAPI — sin frameworks,
+> sin build, sin CDN (funciona offline). Los tokens viven en
+> [`frontend/styles.css`](frontend/styles.css) como variables CSS.
 
 ---
 
 ## 1. Filosofía
 
-Audicop lo usa gente técnica y **no técnica**. El diseño prioriza, en este orden:
+Audicop lo usa gente técnica y **no técnica**. El diseño prioriza, en orden:
 
-1. **Calma.** Una pantalla tranquila, oscura, sin ruido. El usuario llega a
-   transcribir, no a leer documentación.
-2. **Una decisión a la vez.** Lo esencial visible; lo avanzado plegado.
-3. **Lenguaje humano.** Nada de jerga (`int8_float16`, `cuda`) en primer plano.
-4. **Honestidad.** Si algo sale a la nube, se dice. Si va a tardar, se estima.
+1. **Guía por pasos.** La pantalla acompaña: 1 Sube → 2 Transcribe → 3 Resultado
+   → 4 IA. Cada paso se habilita cuando toca; nada abruma de golpe.
+2. **Calma.** Fondo oscuro slate, sin ruido, un solo color de acción.
+3. **Lenguaje humano.** Nada de jerga (`int8_float16`, `cuda`) en primer plano;
+   lo técnico va plegado.
+4. **Honestidad.** Si algo sale a la nube (chat IA), se dice. Si va a tardar, se estima.
 
 ---
 
-## 2. Tokens de color
+## 2. Tokens de color (CSS variables)
 
-Tema oscuro "Slate" aplicado en `.streamlit/config.toml [theme]`.
+Definidos en `:root` de `frontend/styles.css`. Tema oscuro "Slate".
 
-| Token                 | Valor       | Uso                                        |
-|-----------------------|-------------|--------------------------------------------|
-| `primaryColor`        | `#2563eb`   | Único acento de acción (botones, foco)     |
-| `backgroundColor`     | `#0f172a`   | Fondo principal (slate 900)                |
-| `secondaryBackground` | `#1e293b`   | Tarjetas, sidebar, contenedores (slate 800)|
-| `textColor`           | `#e2e8f0`   | Texto principal (slate 200)                |
+| Variable             | Valor       | Uso                                        |
+|----------------------|-------------|--------------------------------------------|
+| `--primary`          | `#2563eb`   | Único acento de acción (botones, foco)     |
+| `--primary-hover`    | `#1d4ed8`   | Hover del primario                         |
+| `--bg`               | `#0f172a`   | Lienzo principal (slate-900)               |
+| `--surface`          | `#1e293b`   | Tarjetas, inputs (slate-800)               |
+| `--surface-raised`   | `#334155`   | Hover, dropdowns (slate-700)               |
+| `--text`             | `#f8fafc`   | Texto principal                            |
+| `--text-2`           | `#cbd5e1`   | Secundario / descripciones                 |
+| `--text-muted`       | `#94a3b8`   | Etiquetas de bajo contraste                |
+| `--border`           | `#334155`   | Divisores estándar                         |
+| `--success`          | `#10b981`   | Estado positivo                            |
+| `--warning`          | `#f59e0b`   | Aviso (privacidad, descarga, audio largo)  |
+| `--danger`           | `#f43f5e`   | Error                                       |
 
 **Regla:** el azul `#2563eb` es el **único** color de marca. No introducir
-segundos acentos decorativos. Los colores semánticos los pone Streamlit:
-
-| Estado    | Componente Streamlit | Cuándo                                      |
-|-----------|----------------------|---------------------------------------------|
-| Éxito     | `st.success`         | "Listo", transcripción completada           |
-| Info      | `st.info`            | Estimaciones, contexto neutro               |
-| Aviso     | `st.warning`         | Descarga de modelo, audio > 3 h, privacidad |
-| Error     | `st.error`           | Fallo de ffmpeg/modelo/IA — siempre amable  |
+segundos acentos decorativos. Rebrandear = cambiar solo estas variables.
 
 ---
 
 ## 3. Tipografía
 
-- Una sola familia (la sans por defecto del tema). **Sin** segundas tipografías.
-- Jerarquía con tamaño/peso de Streamlit: `st.title` → `st.subheader` →
-  `st.markdown` → `st.caption`.
-- Datos numéricos (RAM, VRAM, tiempos) en `st.metric` o ``code`` inline.
+- Una sola familia: `Inter, system-ui, ...` (la del sistema; sin webfont externa
+  para no depender de la red). Sin segundas tipografías.
+- Jerarquía: `h1` (28px/700) título · `h2` (18px/700) paso · cuerpo 15px/400 ·
+  `.muted` para metadatos. Pesos < 400 prohibidos (ilegibles en oscuro).
+- Datos crudos (timestamps, salida) en `monospace`.
 
 ---
 
 ## 4. Layout
 
 ```
-┌──────────────┬────────────────────────────────────────────┐
-│  Sidebar     │  Header: 🎙️ Audicop + tagline               │
-│  (Opciones)  │                                             │
-│              │  ✅ Banner de estado (1 línea) + expander    │
-│  - Idioma    │                                             │
-│  - Acción    │  Sube tu archivo  [Subir | Archivo local]   │
-│  - VAD       │                                             │
-│  - Avanzado  │  [ Transcribir ]                            │
-│   (plegado)  │                                             │
-│              │  Resultados: texto / timestamps / export    │
-│              │  Panel IA (chat + quick actions)            │
-│              │  🔒 Privacidad (plegado)                     │
-└──────────────┴────────────────────────────────────────────┘
+┌───────────────────────────────────────────────┐
+│ 🎙️ Audicop  +  tagline                          │
+│ ✅ banner de estado (1 línea) + detalles plegados│
+│                                                 │
+│ ┌─ Paso 1 · Sube tu archivo ─────────────────┐ │
+│ │  [Subir | Archivo local]  dropzone          │ │
+│ └─────────────────────────────────────────────┘ │
+│ ┌─ Paso 2 · Transcribe (se habilita) ────────┐ │
+│ │  ⚙️ opciones (plegado)   [ ▶ Transcribir ]   │ │
+│ │  barra de progreso + texto en vivo          │ │
+│ └─────────────────────────────────────────────┘ │
+│ ┌─ Paso 3 · Resultado ───────────────────────┐ │
+│ │  [Texto | Tiempos | Exportar]               │ │
+│ └─────────────────────────────────────────────┘ │
+│ ┌─ Paso 4 · Analiza con IA (opcional) ───────┐ │
+│ │  proveedor·modelo·key  atajos  chat          │ │
+│ └─────────────────────────────────────────────┘ │
+│ 🔒 Privacidad (plegado)                          │
+└───────────────────────────────────────────────┘
 ```
 
-- **Sidebar** = ajustes. **Centro** = flujo principal (subir → transcribir → usar).
-- `layout="centered"`: la columna principal no se estira en monitores anchos.
+- Columna central centrada, `max-width: 760px` (no se estira en monitores anchos).
+- Cada paso es una **tarjeta** (`.step`). Los pasos no disponibles van con
+  `.is-disabled` (atenuados, sin interacción) hasta que el anterior se completa.
 
 ---
 
-## 5. Patrones de componente
+## 5. Componentes (clases en `styles.css`)
 
-- **Banner de estado** (`st.success` de una línea): dónde se ejecuta, qué modelo,
-  cuánto tarda. El detalle técnico va en un `st.expander` debajo, plegado.
-- **Entradas en pestañas** (`st.tabs`): "Subir archivo" y "Archivo local". Nunca
-  obligues a elegir entre jerga; las etiquetas explican el cuándo.
-- **Resultados en pestañas**: Texto plano · Con timestamps · Exportar. Cada vista
-  ofrece copiar (`st.code`) y/o descargar (`st.download_button`).
-- **Panel IA**: proveedor + modelo + API key (`type="password"`) arriba; aviso de
-  privacidad **antes** del primer envío; quick-actions como botones; chat con
-  `st.chat_input`/`st.chat_message` y respuesta en streaming (`st.write_stream`).
-- **Selectores legibles**: usa `format_func` para mostrar "Español", "GPU (NVIDIA)",
-  "Large v3" — nunca `es`, `cuda`, `large-v3` crudos al usuario.
+- **Banner de estado** (`.banner`): una línea — dónde corre, qué modelo, cuánto
+  tarda. Verde (`--ok`) con GPU, neutro con CPU. Detalle técnico en `<details>`.
+- **Pasos** (`.step`, `.step__num`): tarjeta numerada; `.is-disabled` hasta su turno.
+- **Pestañas** (`.tab` / `.tab-panel`): entrada (Subir/Local) y resultado
+  (Texto/Tiempos/Exportar). Controladas por `wireTabs()` en `app.js`.
+- **Dropzone** (`.dropzone`): arrastrar o clic; resalta en `dragover`.
+- **Botones**: `.btn--primary` (azul, acción principal), `.btn--ghost`
+  (secundario), `.quick-btn` (atajos de IA, pill).
+- **Progreso** (`.progress`, `.live-text`): barra + texto en vivo durante el decode.
+- **Alertas**: `.alert--error`, `.alert--warn` (privacidad), `.alert--info`.
+- **Chat** (`.bubble--user` / `.bubble--assistant`): burbujas; respuesta en streaming.
+- **Toast** (`.toast`): confirmaciones efímeras ("Copiado", "Descargando modelo").
 
 ---
 
 ## 6. Tono de copy (UI en español)
 
-- Frases cortas, imperativas y amables: "Sube tu archivo", "Listo", "Transcribiendo…".
-- Explica el porqué cuando degradas algo: "usamos `base` para no saturar la RAM".
-- Los errores siempre dan **el siguiente paso**, no solo el síntoma.
-- Emojis con moderación, como anclas visuales (✅ 📥 🔒 ⚠️ 🎮 🧠), no decoración.
+- Frases cortas e imperativas: "Sube tu archivo", "Transcribir", "Listo".
+- Explica el porqué al degradar: "usamos `base` para no saturar la RAM".
+- Los errores dan **el siguiente paso**, no solo el síntoma.
+- Emojis con moderación, como anclas (✅ 📤 ⏱️ 🔒 ⚠️ 🤖), no decoración.
+- Selectores legibles: "Español", "GPU (NVIDIA)", "Large v3" — nunca `es`,
+  `cuda`, `large-v3` crudos (mapeados en `LABELS` de `app.js`).
 
 ---
 
-## 7. Accesibilidad y rendimiento
-
-- Contraste AA: texto `#e2e8f0` sobre `#0f172a` cumple holgado.
-- No bloquear la UI: trabajos largos van con `st.status` + barra de progreso + ETA.
-- Streaming en el chat IA para feedback inmediato.
-- Cachear lo caro (`st.cache_data` para hardware, `st.cache_resource` para el modelo).
-
----
-
-## 8. Reglas (no negociables)
+## 7. Reglas (no negociables)
 
 - ❌ Un segundo color de marca o acentos decorativos.
-- ❌ Jerga técnica en primer plano (va en expanders/avanzado).
-- ❌ Pesos de fuente < 400 ni segundas tipografías.
-- ❌ Pantallas que obliguen a hacer scroll antes de poder subir un archivo.
-- ✅ Rebrandear = cambiar solo `primaryColor` y los tokens de `[theme]`.
+- ❌ Jerga técnica en primer plano (va en `<details>` / Modo avanzado).
+- ❌ Webfonts/JS/CSS desde CDN (rompe el offline). Todo vendorizado/local.
+- ❌ Frameworks de frontend o paso de build (sin Node).
+- ✅ Rebrandear = cambiar solo las variables CSS de `:root`.

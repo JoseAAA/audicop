@@ -399,11 +399,35 @@ function activateResultTab(key) {
   );
 }
 
+// Seek an <audio> element robustly. Blob audio often reports duration
+// Infinity until the file is scanned, which makes a plain `currentTime = x`
+// get ignored — so we wait for metadata and, if needed, scan to the end first.
+function seekAudioTo(p, sec) {
+  const apply = () => {
+    try {
+      p.currentTime = sec;
+      p.play().catch(() => {});
+    } catch (e) { /* ignore */ }
+  };
+  const ready = () => {
+    if (isFinite(p.duration) && p.duration > 0) {
+      apply();
+    } else {
+      const onUpdate = () => { p.removeEventListener("timeupdate", onUpdate); apply(); };
+      p.addEventListener("timeupdate", onUpdate);
+      try { p.currentTime = 1e7; } catch (e) { /* ignore */ }
+    }
+  };
+  if (p.readyState >= 1) ready();
+  else {
+    p.addEventListener("loadedmetadata", ready, { once: true });
+    try { p.load(); } catch (e) { /* ignore */ }
+  }
+}
+
 function seekTo(sec) {
   const p = $("player");
-  if (p && !p.hidden && p.getAttribute("src")) {
-    try { p.currentTime = sec; p.play(); } catch (e) { /* ignore */ }
-  }
+  if (p && !p.hidden && p.getAttribute("src")) seekAudioTo(p, sec);
   activateResultTab("ts");
   let target = null;
   for (const line of document.querySelectorAll("#out-ts .ts-line")) {

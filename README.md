@@ -38,26 +38,30 @@ Es **un solo proceso local** (FastAPI + uvicorn sirviendo un frontend propio).
 
 ## 🚀 Instalación
 
-**Prerrequisitos: ninguno.** No necesitas Python, ni Node, ni Docker, ni ffmpeg.
-El script de arranque instala todo solo en una carpeta aislada del proyecto.
-
-### 🪟 Windows
-
-1. **Descarga el proyecto:** botón verde **Code → Download ZIP** y descomprime.
-2. **Doble clic en `scripts\start.bat`.**
-3. **Espera** (la 1ª vez tarda 5–10 min: instala todo y descarga el modelo).
-4. Se abre tu navegador en **http://localhost:8000**. ✅ Listo.
-
-### 🍎 macOS / 🐧 Linux
+**Prerrequisitos:** solo **Git**. Ni Python, ni Node, ni Docker, ni ffmpeg — el
+script instala todo (incluido Python, vía `uv`) en una carpeta aislada del
+proyecto, sin tocar tu sistema.
 
 ```bash
+# 1. Clonar
 git clone https://github.com/JoseAAA/audicop.git
 cd audicop
-./scripts/start.sh
 ```
 
-> La 1ª vez tarda unos minutos; luego arranca en segundos. Se abre solo en
-> **http://localhost:8000**.
+```bash
+# 2. Arrancar (instala dependencias la 1ª vez y abre el navegador solo)
+.\scripts\start.ps1        # Windows (PowerShell)
+./scripts/start.sh         # Linux / macOS
+```
+
+La 1ª vez tarda 5–10 min (instala todo y descarga el modelo); las siguientes,
+segundos. Se abre solo en **http://localhost:8000**.
+
+> **Windows:** si PowerShell bloquea el script ("la ejecución de scripts está
+> deshabilitada en este sistema"), lánzalo así una vez:
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+> ```
 
 <details>
 <summary>¿Qué hace el script por debajo?</summary>
@@ -189,7 +193,7 @@ Detalle completo en [AGENTS.md](AGENTS.md) §3.
 |----------|----------|
 | El modelo tarda en la 1ª descarga | Normal (`large-v3` ~3 GB). Luego sale de caché. |
 | `WinError 1314` / "privilegio requerido" | Audicop ya lo maneja: descarga sin symlinks a `~/.cache/audicop/models`. Si persiste, borra `~/.cache/huggingface` y reabre. |
-| No detecta mi GPU NVIDIA | Verifica que `nvidia-smi` funciona. Relanza `start.bat`/`start.sh`: instala CUDA solo. |
+| No detecta mi GPU NVIDIA | Verifica que `nvidia-smi` funciona. Relanza `start.ps1`/`start.sh`: instala CUDA solo. |
 | `ffmpeg failed to convert` | El origen está corrupto o usa un códec raro. Reconviértelo o ábrelo en VLC. |
 | `CUDA out of memory` | Abre **Modo avanzado** y baja de modelo (`medium`/`small`). |
 | El chat IA dice "no está instalado" | Reinstala dependencias: `uv sync` (las libs de IA vienen incluidas). |

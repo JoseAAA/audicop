@@ -4,9 +4,10 @@
 # Shell scripts MUST be LF (CRLF breaks the bash shebang on Linux/macOS).
 *.sh text eol=lf
 
-# Windows batch files MUST be CRLF (Windows cmd is picky).
+# Windows scripts: CRLF is the safe default for cmd / PowerShell.
 *.bat text eol=crlf
 *.cmd text eol=crlf
+*.ps1 text eol=crlf
 
 # Lock files: keep as-is, never modify.
 uv.lock text eol=lf

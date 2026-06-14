@@ -22,7 +22,7 @@ uv run pytest --cov
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy audicop/hardware.py audicop/recommender.py audicop/audio.py \
-            audicop/transcriber.py audicop/formatting.py audicop/prompts.py \
+            audicop/transcriber.py audicop/formatting.py audicop/prompts/__init__.py \
             audicop/llm.py
 ```
 

@@ -64,6 +64,10 @@ audicop = "audicop.app:main"
 include = ["audicop*"]
 exclude = ["tests*"]
 
+[tool.setuptools.package-data]
+# Ship the editable prompt templates with the package.
+audicop = ["prompts/*.md", "prompts/actions/*.md"]
+
 # ---------------------------------------------------------------------------
 # Tooling
 # ---------------------------------------------------------------------------

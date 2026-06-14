@@ -1,0 +1,5 @@
+{
+  "//": "Audicop usa uv. Esto evita el error 'No module named pip' del Python Environments extension, que intenta usar pip (los entornos de uv no lo incluyen).",
+  "python-envs.alwaysUseUv": true,
+  "python.terminal.activateEnvironment": true
+}

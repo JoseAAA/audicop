@@ -30,7 +30,6 @@ con IA (tu propia API key) para resumir y analizar lo dicho.
 - [🗺️ Roadmap](#️-roadmap)
 - [👤 Autor](#-autor)
 - [📜 License](#-license)
-- [🌎 English](#-english)
 
 ---
 
@@ -231,36 +230,3 @@ Convenciones del proyecto en [AGENTS.md](AGENTS.md) y [DESIGN.md](DESIGN.md).
 ## 📜 License
 
 MIT — ver [LICENSE](LICENSE).
-
----
-
-## 🌎 English
-
-> Drop any audio or video, get timestamped text, and analyze it with AI.
-> All local, zero config.
-
-Audicop is a **local** web app that transcribes and translates audio/video with
-faster-whisper. It detects your hardware (CPU, RAM, NVIDIA GPU + VRAM) and picks
-the best Whisper model your machine can run. It adds YouTube-style timestamps,
-SRT/VTT export, and an optional AI chat (bring your own OpenAI/Gemini key) to
-summarize and analyze what was said.
-
-### Quick start
-
-```bash
-git clone https://github.com/JoseAAA/audicop.git
-cd audicop
-./scripts/run.sh        # or scripts\run.bat on Windows
-```
-
-Open `http://localhost:8501`. For the AI chat: `uv sync --extra ai`.
-
-### Highlights
-
-- Auto-selects the right Whisper model based on **free** memory.
-- Audio + video formats; ffmpeg and CUDA bundled via pip.
-- Transcription is 100% local. Only the optional AI chat sends the **text**
-  (never the audio) to the provider you choose, with your own key.
-- Timestamped transcript, SRT/VTT export, streaming AI answers that cite moments.
-
-See the Spanish sections above for full documentation.

@@ -62,7 +62,7 @@ audicop/
 ├── audio.py         to_wav_16k() vía ffmpeg empaquetado. Limpieza de temporales.
 ├── transcriber.py   Wrapper de WhisperModel. DLL CUDA en Windows. Fallback sin symlinks.
 ├── formatting.py    Segments → texto plano / timestamped / SRT / VTT. Funciones puras.
-├── prompts.py       System prompt + quick-actions + build_context para el chat IA.
+├── prompts/         Paquete: __init__.py carga los .md editables (system, context, actions/*).
 ├── llm.py           Cliente agnóstico (OpenAI/Gemini), streaming, BYO key.
 ├── ui.py            Componentes Streamlit. Presentación, sin lógica de negocio.
 └── app.py           Entry point delgado: orquesta módulos + session_state.
@@ -99,7 +99,7 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy audicop/hardware.py audicop/recommender.py audicop/audio.py \
             audicop/transcriber.py audicop/formatting.py audicop/llm.py \
-            audicop/prompts.py
+            audicop/prompts/__init__.py
 uv run pytest --cov            # ≥ 80% en módulos no-UI
 ```
 

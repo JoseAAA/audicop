@@ -204,14 +204,45 @@ a { color: var(--primary); }
 .small { font-size: 12.5px; }
 
 /* Chat */
-.chat-log { margin: 14px 0; display: flex; flex-direction: column; gap: 10px; }
-.bubble { padding: 10px 14px; border-radius: var(--r-lg); max-width: 90%; white-space: pre-wrap; font-size: 14px; }
-.bubble--user { align-self: flex-end; background: var(--primary); color: var(--on-primary); }
-.bubble--assistant { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); }
+.chat-log {
+  margin: 14px 0; display: flex; flex-direction: column; gap: 10px;
+  max-height: 440px; overflow-y: auto; padding-right: 4px;
+}
+.bubble { padding: 10px 14px; border-radius: var(--r-lg); max-width: 90%; font-size: 14px; line-height: 1.55; }
+.bubble--user { align-self: flex-end; background: var(--primary); color: var(--on-primary); white-space: pre-wrap; }
+.bubble--assistant { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); max-width: 95%; }
 .chat-form { display: flex; gap: 10px; }
 .chat-form .text-input { flex: 1; }
 .quick-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: var(--r-full); padding: 7px 14px; font-size: 13px; cursor: pointer; font-family: inherit; }
 .quick-btn:hover { background: var(--surface-raised); border-color: var(--primary); }
+
+/* Rendered markdown (assistant answers) */
+.md-line { margin: 2px 0; }
+.md-gap { height: 8px; }
+.md-bullet { color: var(--text-muted); margin-right: 4px; }
+.bubble--assistant strong { color: var(--text); }
+
+/* Clickable timestamps */
+.ts {
+  color: var(--primary); cursor: pointer; font-variant-numeric: tabular-nums;
+  border-bottom: 1px dotted var(--primary); white-space: nowrap;
+}
+.ts:hover { background: rgba(37, 99, 235, 0.15); border-radius: 3px; }
+
+/* Audio player */
+.player { width: 100%; margin: 4px 0 14px; }
+
+/* Timestamped transcript as clickable lines */
+.ts-list {
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 8px; max-height: 360px; overflow-y: auto; margin-top: 8px; font-size: 13.5px;
+}
+.ts-line { display: flex; gap: 8px; padding: 3px 6px; border-radius: var(--r-md); }
+.ts-line:hover { background: var(--surface); }
+.ts-line__t { color: var(--primary); cursor: pointer; font-variant-numeric: tabular-nums; flex: none; }
+.ts-line__x { color: var(--text-2); white-space: pre-wrap; }
+@keyframes flash { from { background: var(--primary-soft); } to { background: transparent; } }
+.ts-line.flash { animation: flash 1.4s ease-out; }
 
 /* Toast */
 .toast {

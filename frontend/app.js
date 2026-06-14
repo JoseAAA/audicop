@@ -21,6 +21,7 @@ const state = {
   chosen: null, // { kind: "file"|"path", file?, path? }
   ai: { providers: {}, models: {}, keyHelp: {} },
   chatHistory: [],
+  playerUrl: null,
 };
 
 function toast(msg) {
@@ -94,6 +95,52 @@ function fmtDuration(sec) {
   if (m < 60) return `${m} min`;
   const h = Math.floor(m / 60);
   return `${h} h ${m % 60} min`;
+}
+
+// ---------------------------------------------------------------------------
+// Markdown + timestamp rendering (safe: escape first, then add our own tags)
+// ---------------------------------------------------------------------------
+function tsToSec(t) {
+  const p = t.split(":").map(Number);
+  return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p[0] * 60 + p[1];
+}
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function escapeAttr(s) {
+  return escapeHtml(s).replace(/"/g, "&quot;");
+}
+function fragmentAt(sec) {
+  let best = null;
+  for (const s of state.segments) {
+    if (sec >= s.start && sec <= s.end) return s.text.trim();
+    if (s.start <= sec) best = s;
+  }
+  return best ? best.text.trim() : "";
+}
+const TS_RE = /\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g;
+function inlineMd(s) {
+  s = escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  return s.replace(TS_RE, (_m, t) => {
+    const sec = tsToSec(t);
+    return `<span class="ts" data-sec="${sec}" title="${escapeAttr(fragmentAt(sec))}">[${t}]</span>`;
+  });
+}
+function renderMarkdown(text) {
+  const out = [];
+  for (const raw of text.split("\n")) {
+    if (!raw.trim()) { out.push('<div class="md-gap"></div>'); continue; }
+    const indent = raw.match(/^\s*/)[0].length;
+    let line = raw.trim();
+    let bullet = "";
+    let m;
+    if (/^[-*]\s+/.test(line)) { bullet = "•"; line = line.replace(/^[-*]\s+/, ""); }
+    else if ((m = line.match(/^(\d+)\.\s+/))) { bullet = m[1] + "."; line = line.replace(/^\d+\.\s+/, ""); }
+    const pad = Math.min(3, Math.floor(indent / 2)) * 16;
+    const b = bullet ? `<span class="md-bullet">${bullet}</span> ` : "";
+    out.push(`<div class="md-line" style="padding-left:${pad}px">${b}${inlineMd(line)}</div>`);
+  }
+  return out.join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -301,13 +348,74 @@ function renderResults() {
     return;
   }
   $("out-plain").textContent = toPlain();
-  $("out-ts").textContent = toTimestamped();
+  renderTsList();
+  setupPlayer();
   $("result-meta").textContent =
     `Idioma: ${state.meta.language} (prob. ${state.meta.prob.toFixed(2)}) · duración ${fmtDuration(state.meta.duration)}`;
   setStepEnabled("step-result", true);
   setStepEnabled("step-ai", true);
   $("btn-transcribe").disabled = false;
   $("step-result").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderTsList() {
+  const el = $("out-ts");
+  el.innerHTML = "";
+  nonEmpty().forEach((s) => {
+    const line = document.createElement("div");
+    line.className = "ts-line";
+    line.dataset.start = s.start;
+    const t = document.createElement("span");
+    t.className = "ts-line__t";
+    t.dataset.sec = Math.floor(s.start);
+    t.textContent = `[${fmtTs(s.start)}]`;
+    const x = document.createElement("span");
+    x.className = "ts-line__x";
+    x.textContent = s.text.trim();
+    line.append(t, x);
+    el.appendChild(line);
+  });
+}
+
+function setupPlayer() {
+  const p = $("player");
+  if (state.playerUrl) { URL.revokeObjectURL(state.playerUrl); state.playerUrl = null; }
+  if (state.chosen && state.chosen.kind === "file") {
+    state.playerUrl = URL.createObjectURL(state.chosen.file);
+    p.src = state.playerUrl;
+    p.hidden = false;
+  } else {
+    p.removeAttribute("src");
+    p.hidden = true;
+  }
+}
+
+function activateResultTab(key) {
+  document.querySelectorAll("[data-rtab]").forEach((t) =>
+    t.classList.toggle("is-active", t.getAttribute("data-rtab") === key)
+  );
+  document.querySelectorAll("[data-rpanel]").forEach((p) =>
+    p.classList.toggle("is-active", p.getAttribute("data-rpanel") === key)
+  );
+}
+
+function seekTo(sec) {
+  const p = $("player");
+  if (p && !p.hidden && p.getAttribute("src")) {
+    try { p.currentTime = sec; p.play(); } catch (e) { /* ignore */ }
+  }
+  activateResultTab("ts");
+  let target = null;
+  for (const line of document.querySelectorAll("#out-ts .ts-line")) {
+    if (parseFloat(line.dataset.start) <= sec + 0.001) target = line;
+    else break;
+  }
+  if (target) {
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.classList.remove("flash");
+    void target.offsetWidth; // restart the animation
+    target.classList.add("flash");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -365,8 +473,12 @@ async function sendChat(prompt) {
         else if (payload.error) { bubble.textContent = `❌ ${payload.error}`; }
       }
     }
-    if (answer) state.chatHistory.push({ role: "assistant", content: answer });
-    else if (bubble.textContent === "…") bubble.textContent = "(sin respuesta)";
+    if (answer) {
+      bubble.innerHTML = renderMarkdown(answer); // render once complete (bold, bullets, [MM:SS])
+      state.chatHistory.push({ role: "assistant", content: answer });
+    } else if (bubble.textContent === "…") {
+      bubble.textContent = "(sin respuesta)";
+    }
   } catch (e) {
     bubble.textContent = "❌ No se pudo contactar al servidor.";
   }
@@ -407,6 +519,12 @@ function init() {
       else if (k === "vtt") download(toVTT(), "vtt", "text/vtt");
     })
   );
+
+  // Clic en cualquier [MM:SS] (chat o transcripción) → saltar a ese momento
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest(".ts, .ts-line__t");
+    if (t && t.dataset.sec != null) seekTo(parseFloat(t.dataset.sec));
+  });
 
   // AI
   $("ai-provider").addEventListener("change", refreshAiModels);

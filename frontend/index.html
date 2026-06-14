@@ -100,6 +100,8 @@
         <div class="step__head"><span class="step__num">3</span><h2>Resultado</h2></div>
         <p id="result-meta" class="muted"></p>
 
+        <audio id="player" class="player" controls hidden></audio>
+
         <div class="tabs">
           <button class="tab is-active" data-rtab="plain">📄 Texto</button>
           <button class="tab" data-rtab="ts">⏱️ Con tiempos</button>
@@ -112,7 +114,8 @@
         </div>
         <div class="tab-panel" data-rpanel="ts">
           <button class="btn btn--ghost btn--copy" data-copy="ts">📋 Copiar</button>
-          <pre id="out-ts" class="output"></pre>
+          <p class="muted small">Clic en un momento para saltar ahí en el audio.</p>
+          <div id="out-ts" class="ts-list"></div>
         </div>
         <div class="tab-panel" data-rpanel="export">
           <p class="muted">Descarga en el formato que necesites.</p>

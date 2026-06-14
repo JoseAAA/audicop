@@ -38,33 +38,37 @@ Es **un solo proceso local** (FastAPI + uvicorn sirviendo un frontend propio).
 
 ## 🚀 Instalación
 
-### Windows (la mayoría de usuarios)
+**Prerrequisitos: ninguno.** No necesitas Python, ni Node, ni Docker, ni ffmpeg.
+El script de arranque instala todo solo en una carpeta aislada del proyecto.
 
-1. **Descarga el proyecto.** Botón verde "Code" → "Download ZIP". Descomprime
-   donde quieras.
-2. **Doble clic en `scripts\run.bat`.** Se abre una ventana que va informando
-   de cada paso.
-3. **Espera 5–10 minutos** la primera vez (instala todo y descarga el modelo).
-   Las siguientes veces arranca en segundos.
-4. Se abre tu navegador en `http://localhost:8000`. **Listo.**
+### 🪟 Windows
 
-### macOS / Linux
+1. **Descarga el proyecto:** botón verde **Code → Download ZIP** y descomprime.
+2. **Doble clic en `scripts\start.bat`.**
+3. **Espera** (la 1ª vez tarda 5–10 min: instala todo y descarga el modelo).
+4. Se abre tu navegador en **http://localhost:8000**. ✅ Listo.
+
+### 🍎 macOS / 🐧 Linux
 
 ```bash
 git clone https://github.com/JoseAAA/audicop.git
 cd audicop
-./scripts/run.sh
+./scripts/start.sh
 ```
 
-### ¿Qué hace el script solo?
+> La 1ª vez tarda unos minutos; luego arranca en segundos. Se abre solo en
+> **http://localhost:8000**.
 
-1. Instala [`uv`](https://docs.astral.sh/uv/) (gestor de Python rápido) si no lo tienes.
-2. Detecta GPU NVIDIA y, si la hay, instala las librerías CUDA automáticamente.
-3. Crea un entorno aislado con dependencias pinchadas vía `uv.lock`.
-4. Lanza la app.
+<details>
+<summary>¿Qué hace el script por debajo?</summary>
 
-> **No necesitas** Python instalado (uv lo trae), ni ffmpeg (va empaquetado), ni
-> CUDA toolkit (solo el driver NVIDIA). El chat con IA viene incluido.
+1. Instala [`uv`](https://docs.astral.sh/uv/) (gestor de Python) si no lo tienes.
+2. Detecta tu GPU NVIDIA y, si la hay, añade el soporte CUDA automáticamente.
+3. Crea un entorno aislado con versiones fijas (`uv.lock`).
+4. Levanta el servidor local (FastAPI + uvicorn) y abre el navegador.
+
+Todo queda dentro de la carpeta del proyecto. **No toca tu Python del sistema.**
+</details>
 
 ---
 
@@ -185,7 +189,7 @@ Detalle completo en [AGENTS.md](AGENTS.md) §3.
 |----------|----------|
 | El modelo tarda en la 1ª descarga | Normal (`large-v3` ~3 GB). Luego sale de caché. |
 | `WinError 1314` / "privilegio requerido" | Audicop ya lo maneja: descarga sin symlinks a `~/.cache/audicop/models`. Si persiste, borra `~/.cache/huggingface` y reabre. |
-| No detecta mi GPU NVIDIA | Verifica que `nvidia-smi` funciona. Relanza `run.bat`/`run.sh`: instala CUDA solo. |
+| No detecta mi GPU NVIDIA | Verifica que `nvidia-smi` funciona. Relanza `start.bat`/`start.sh`: instala CUDA solo. |
 | `ffmpeg failed to convert` | El origen está corrupto o usa un códec raro. Reconviértelo o ábrelo en VLC. |
 | `CUDA out of memory` | Abre **Modo avanzado** y baja de modelo (`medium`/`small`). |
 | El chat IA dice "no está instalado" | Reinstala dependencias: `uv sync` (las libs de IA vienen incluidas). |

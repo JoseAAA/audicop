@@ -115,16 +115,14 @@ version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "faster-whisper" },
+    { name = "google-genai" },
     { name = "imageio-ffmpeg" },
+    { name = "openai" },
     { name = "psutil" },
     { name = "streamlit" },
 ]
 
 [package.optional-dependencies]
-ai = [
-    { name = "google-genai" },
-    { name = "openai" },
-]
 cuda = [
     { name = "nvidia-cublas-cu12" },
     { name = "nvidia-cudnn-cu12" },
@@ -139,19 +137,19 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "faster-whisper", specifier = ">=1.0" },
-    { name = "google-genai", marker = "extra == 'ai'", specifier = ">=0.3" },
+    { name = "google-genai", specifier = ">=0.3" },
     { name = "imageio-ffmpeg", specifier = ">=0.5" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "nvidia-cublas-cu12", marker = "extra == 'cuda'" },
     { name = "nvidia-cudnn-cu12", marker = "extra == 'cuda'", specifier = ">=9" },
-    { name = "openai", marker = "extra == 'ai'", specifier = ">=1.0" },
+    { name = "openai", specifier = ">=1.0" },
     { name = "psutil", specifier = ">=5.9" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "streamlit", specifier = ">=1.36" },
 ]
-provides-extras = ["cuda", "ai", "dev"]
+provides-extras = ["cuda", "dev"]
 
 [[package]]
 name = "av"

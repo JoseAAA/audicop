@@ -61,9 +61,7 @@ cd audicop
 4. Lanza la app.
 
 > **No necesitas** Python instalado (uv lo trae), ni ffmpeg (va empaquetado), ni
-> CUDA toolkit (solo el driver NVIDIA).
-
-**¿Quieres el chat con IA?** Instala el extra una vez: `uv sync --extra ai`.
+> CUDA toolkit (solo el driver NVIDIA). El chat con IA viene incluido.
 
 ---
 
@@ -184,7 +182,7 @@ Detalle completo en [AGENTS.md](AGENTS.md) §3.
 | No detecta mi GPU NVIDIA | Verifica que `nvidia-smi` funciona. Relanza `run.bat`/`run.sh`: instala CUDA solo. |
 | `ffmpeg failed to convert` | El origen está corrupto o usa un códec raro. Reconviértelo o ábrelo en VLC. |
 | `CUDA out of memory` | Abre **Modo avanzado** y baja de modelo (`medium`/`small`). |
-| El chat IA dice "no está instalado" | Ejecuta `uv sync --extra ai`. |
+| El chat IA dice "no está instalado" | Reinstala dependencias: `uv sync` (las libs de IA vienen incluidas). |
 
 ---
 
@@ -216,8 +214,8 @@ Créditos: [faster-whisper](https://github.com/SYSTRAN/faster-whisper),
 - [ ] Proceso por lotes (varias carpetas).
 - [ ] Más proveedores IA (Anthropic, modelos locales vía Ollama).
 
-Issues y PRs bienvenidos — ver [CONTRIBUTING.md](CONTRIBUTING.md).
-Convenciones del proyecto en [AGENTS.md](AGENTS.md) y [DESIGN.md](DESIGN.md).
+Issues y PRs bienvenidos. Convenciones del proyecto en [AGENTS.md](AGENTS.md)
+y [DESIGN.md](DESIGN.md).
 
 ---
 

@@ -28,6 +28,13 @@ dependencies = [
     "faster-whisper>=1.0",
     "imageio-ffmpeg>=0.5",
     "psutil>=5.9",
+    # AI chat/analysis (bring-your-own-key). Kept in the base set on purpose:
+    # `uv sync` prunes anything not installed, so an optional extra would be
+    # uninstalled on every normal launch and the AI panel would silently
+    # break. These SDKs are lightweight (no torch), so always installing them
+    # is the reliable choice for non-technical users.
+    "openai>=1.0",
+    "google-genai>=0.3",
 ]
 
 [project.optional-dependencies]
@@ -38,13 +45,6 @@ dependencies = [
 cuda = [
     "nvidia-cublas-cu12",
     "nvidia-cudnn-cu12>=9",
-]
-# Optional AI chat/analysis over the transcript (bring-your-own-key).
-# Install via `uv sync --extra ai`. Without it, transcription still works;
-# only the AI panel is unavailable.
-ai = [
-    "openai>=1.0",
-    "google-genai>=0.3",
 ]
 dev = [
     "ruff>=0.6",

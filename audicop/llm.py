@@ -3,8 +3,8 @@
 Bring-your-own-key: the user supplies an API key (kept only in Streamlit
 session state) and picks a provider + model. Supported providers are
 OpenAI and Google Gemini. Each provider SDK is imported lazily inside its
-``_stream_*`` function so the rest of Audicop works even when the ``ai``
-extra is not installed.
+``_stream_*`` function as a safety net, so a broken/partial install
+degrades to a clear message instead of crashing the whole app.
 
 Responses are streamed (an iterator of text chunks) so the UI can render
 them token-by-token with ``st.write_stream``.
@@ -112,9 +112,7 @@ def _stream_openai(
     try:
         from openai import OpenAI
     except ImportError as exc:
-        raise LLMError(
-            "El soporte de OpenAI no está instalado. Ejecuta `uv sync --extra ai`."
-        ) from exc
+        raise LLMError("El soporte de OpenAI no está instalado. Reinstala con `uv sync`.") from exc
 
     payload = [{"role": "system", "content": system}]
     payload.extend({"role": m.role, "content": m.content} for m in messages)
@@ -152,9 +150,7 @@ def _stream_gemini(
         from google import genai
         from google.genai import types
     except ImportError as exc:
-        raise LLMError(
-            "El soporte de Gemini no está instalado. Ejecuta `uv sync --extra ai`."
-        ) from exc
+        raise LLMError("El soporte de Gemini no está instalado. Reinstala con `uv sync`.") from exc
 
     # Gemini has no dedicated "system" role; pass it via system_instruction.
     contents = [

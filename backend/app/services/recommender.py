@@ -1,11 +1,11 @@
 """Pick the right Whisper model and compute type for the local hardware.
 
 The recommendation logic is intentionally pure and deterministic: given a
-:class:`~audicop.hardware.HardwareInfo`, :func:`recommend` returns a
+:class:`~app.adapters.hardware.HardwareInfo`, :func:`recommend` returns a
 :class:`ModelChoice` that tells the rest of the app which model to load,
 on which device, and with what compute type.
 
-The full table lives in :mod:`audicop.config` so the README and the code
+The full table lives in :mod:`app.core.config` so the README and the code
 stay in sync.
 """
 
@@ -14,9 +14,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from audicop import config
-from audicop.config import ModelTier
-from audicop.hardware import HardwareInfo
+from app.adapters.hardware import HardwareInfo
+from app.core import config
+from app.core.config import ModelTier
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class ModelChoice:
 
     @classmethod
     def from_tier(cls, tier: ModelTier) -> ModelChoice:
-        """Build a :class:`ModelChoice` from a :class:`~audicop.config.ModelTier`."""
+        """Build a :class:`ModelChoice` from a :class:`~app.core.config.ModelTier`."""
         return cls(
             model_size=tier.model_size,
             compute_type=tier.compute_type,
@@ -92,7 +92,7 @@ def recommend(hw: HardwareInfo) -> ModelChoice:
 
     Args:
         hw: Snapshot of the local hardware, typically produced by
-            :func:`audicop.hardware.detect_hardware`.
+            :func:`app.adapters.hardware.detect_hardware`.
 
     Returns:
         A :class:`ModelChoice` ready to feed into the transcriber.

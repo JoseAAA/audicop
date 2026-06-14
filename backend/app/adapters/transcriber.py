@@ -27,7 +27,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from audicop import config
+from app.core import config
 
 logger = logging.getLogger(__name__)
 

@@ -1,4 +1,4 @@
-"""Tests for `audicop.hardware`."""
+"""Tests for `app.adapters.hardware`."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from audicop import hardware
-from audicop.hardware import HardwareInfo, detect_hardware
+from app.adapters import hardware
+from app.adapters.hardware import HardwareInfo, detect_hardware
 
 
 @pytest.fixture

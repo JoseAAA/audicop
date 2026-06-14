@@ -1,7 +1,7 @@
 """Audio normalization helpers.
 
 Whisper expects 16 kHz mono PCM. To support arbitrary user input — any of
-the audio or video extensions in :mod:`audicop.config` — we shell out to
+the audio or video extensions in :mod:`app.core.config` — we shell out to
 the ffmpeg binary that ships with ``imageio-ffmpeg``. That binary is a
 pip dependency, so the user does not have to install ffmpeg system-wide.
 """
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import imageio_ffmpeg
 
-from audicop import config
+from app.core import config
 
 logger = logging.getLogger(__name__)
 

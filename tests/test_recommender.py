@@ -1,11 +1,11 @@
-"""Tests for `audicop.recommender`."""
+"""Tests for `app.services.recommender`."""
 
 from __future__ import annotations
 
 import pytest
 
-from audicop.hardware import HardwareInfo
-from audicop.recommender import ModelChoice, recommend
+from app.adapters.hardware import HardwareInfo
+from app.services.recommender import ModelChoice, recommend
 
 
 def _hw(

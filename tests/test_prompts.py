@@ -1,8 +1,8 @@
-"""Tests for `audicop.prompts`."""
+"""Tests for `app.prompts`."""
 
 from __future__ import annotations
 
-from audicop.prompts import QUICK_ACTIONS, SYSTEM_PROMPT, QuickAction, build_context
+from app.prompts import QUICK_ACTIONS, SYSTEM_PROMPT, QuickAction, build_context
 
 
 def test_system_prompt_mentions_timestamps() -> None:

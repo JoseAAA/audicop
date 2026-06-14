@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "audicop"
-version = "0.2.0"
-description = "Local audio/video transcription with Streamlit and faster-whisper. Zero config."
+version = "0.3.0"
+description = "Local audio/video transcription with FastAPI and faster-whisper. Zero config."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
-authors = [{ name = "Audicop contributors" }]
-keywords = ["whisper", "transcription", "streamlit", "faster-whisper", "audio", "video"]
+authors = [{ name = "JoseAAA" }]
+keywords = ["whisper", "transcription", "fastapi", "faster-whisper", "audio", "video"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Web Environment",
@@ -24,7 +24,9 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Speech",
 ]
 dependencies = [
-    "streamlit>=1.36",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
     "faster-whisper>=1.0",
     "imageio-ffmpeg>=0.5",
     "psutil>=5.9",
@@ -57,16 +59,13 @@ dev = [
 Homepage = "https://github.com/JoseAAA/audicop"
 Issues = "https://github.com/JoseAAA/audicop/issues"
 
-[project.scripts]
-audicop = "audicop.app:main"
-
 [tool.setuptools.packages.find]
-include = ["audicop*"]
-exclude = ["tests*"]
+where = ["backend"]
+include = ["app*"]
 
 [tool.setuptools.package-data]
 # Ship the editable prompt templates with the package.
-audicop = ["prompts/*.md", "prompts/actions/*.md"]
+app = ["prompts/*.md", "prompts/actions/*.md"]
 
 # ---------------------------------------------------------------------------
 # Tooling
@@ -98,8 +97,11 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D"]
-"audicop/app.py" = ["D"]
-"audicop/ui.py" = ["D"]
+"backend/app/api/*" = ["D"]
+"backend/app/main.py" = ["D"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -117,13 +119,15 @@ warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
 module = [
-    "audicop.hardware",
-    "audicop.recommender",
-    "audicop.audio",
-    "audicop.transcriber",
-    "audicop.formatting",
-    "audicop.prompts",
-    "audicop.llm",
+    "app.core.config",
+    "app.adapters.hardware",
+    "app.adapters.audio",
+    "app.adapters.transcriber",
+    "app.adapters.llm",
+    "app.services.recommender",
+    "app.services.formatting",
+    "app.services.pipeline",
+    "app.prompts",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
@@ -136,7 +140,6 @@ module = [
     "imageio_ffmpeg.*",
     "psutil.*",
     "torch.*",
-    "streamlit.*",
     "openai.*",
     "google.*",
 ]
@@ -145,14 +148,15 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+pythonpath = ["backend"]
 addopts = "-q --strict-markers"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
 
 [tool.coverage.run]
-source = ["audicop"]
-omit = ["audicop/app.py", "audicop/ui.py"]
+source = ["app"]
+omit = ["backend/app/main.py", "backend/app/api/*"]
 
 [tool.coverage.report]
 fail_under = 80

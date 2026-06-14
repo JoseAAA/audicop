@@ -1,7 +1,7 @@
-"""Tests for `audicop.audio`.
+"""Tests for `app.adapters.audio`.
 
 The smoke test invokes the real bundled ffmpeg to round-trip a tiny
-generated WAV through :func:`audicop.audio.to_wav_16k`. That keeps the
+generated WAV through :func:`app.adapters.audio.to_wav_16k`. That keeps the
 test cheap while exercising the full subprocess path.
 """
 
@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from audicop import audio
-from audicop.audio import AudioConversionError, cleanup, get_duration_seconds, to_wav_16k
+from app.adapters import audio
+from app.adapters.audio import AudioConversionError, cleanup, get_duration_seconds, to_wav_16k
 
 
 def _write_sine_wav(path: Path, *, sample_rate: int = 22050, seconds: float = 0.25) -> None:

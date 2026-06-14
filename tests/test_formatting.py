@@ -1,17 +1,17 @@
-"""Tests for `audicop.formatting`."""
+"""Tests for `app.services.formatting`."""
 
 from __future__ import annotations
 
 import pytest
 
-from audicop.formatting import (
+from app.adapters.transcriber import TranscriptSegment
+from app.services.formatting import (
     _format_timestamp,
     to_plain_text,
     to_srt,
     to_timestamped_text,
     to_vtt,
 )
-from audicop.transcriber import TranscriptSegment
 
 
 def _segs() -> list[TranscriptSegment]:

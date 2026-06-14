@@ -1,4 +1,4 @@
-"""Tests for `audicop.llm`.
+"""Tests for `app.adapters.llm`.
 
 Both provider SDKs are faked via ``sys.modules`` so the suite never makes
 a network call or needs the real ``openai`` / ``google-genai`` packages.
@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from audicop import llm
-from audicop.llm import ChatMessage, LLMError, available_models, stream_chat
+from app.adapters import llm
+from app.adapters.llm import ChatMessage, LLMError, available_models, stream_chat
 
 
 def test_available_models() -> None:

@@ -1,4 +1,4 @@
-"""Tests for `audicop.transcriber`.
+"""Tests for `app.adapters.transcriber`.
 
 `WhisperModel` is mocked so the suite never has to download real model
 weights. We only verify our wrapper's behavior: validation, lazy load,
@@ -13,8 +13,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from audicop import transcriber
-from audicop.transcriber import (
+from app.adapters import transcriber
+from app.adapters.transcriber import (
     Transcriber,
     TranscriptionError,
     TranscriptSegment,

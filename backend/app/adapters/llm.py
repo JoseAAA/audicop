@@ -165,9 +165,7 @@ def _stream_gemini(
         client = genai.Client(api_key=api_key)
         stream = client.models.generate_content_stream(
             model=model,
-            # The SDK's param type is an invariant union of lists; a plain
-            # list[Content] is valid at runtime but mypy flags the variance.
-            contents=contents,  # type: ignore[arg-type]
+            contents=contents,
             config=types.GenerateContentConfig(system_instruction=system),
         )
         for chunk in stream:

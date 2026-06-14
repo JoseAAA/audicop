@@ -1,9 +1,9 @@
 """Render decoded segments into the output formats Audicop offers.
 
 Pure, side-effect-free functions over ``list[TranscriptSegment]`` (the
-dataclass produced by :mod:`audicop.transcriber`). Keeping them here makes
-them trivially unit-testable and reusable by both the UI download buttons
-and the AI context builder.
+dataclass produced by :mod:`app.adapters.transcriber`). Keeping them here
+makes them trivially unit-testable and reusable by both the API download
+endpoints and the AI context builder.
 
 Formats:
     - Plain text: just the spoken words, newline per segment.
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from audicop.transcriber import TranscriptSegment
+from app.adapters.transcriber import TranscriptSegment
 
 
 def _format_timestamp(seconds: float, *, with_millis: bool = False, comma: bool = False) -> str:

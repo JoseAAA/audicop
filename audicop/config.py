@@ -277,3 +277,15 @@ CPU_LOW_TIER: Final[ModelTier] = ModelTier(
 APP_TITLE: Final[str] = "🎙️ Audicop"
 APP_TAGLINE: Final[str] = "Suelta cualquier audio o vídeo. Recibe el texto. Sin configurar nada."
 TEMP_PREFIX: Final[str] = "audicop_"
+
+# ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+SRT_SUFFIX: Final[str] = ".srt"
+VTT_SUFFIX: Final[str] = ".vtt"
+TXT_SUFFIX: Final[str] = ".txt"
+
+# Above this transcript length we warn the user that the AI chat may exceed
+# the model's context window or cost more (rough char proxy for tokens).
+LONG_TRANSCRIPT_CHARS: Final[int] = 120_000

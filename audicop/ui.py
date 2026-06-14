@@ -14,9 +14,11 @@ from pathlib import Path
 
 import streamlit as st
 
-from audicop import config
+from audicop import config, formatting, llm, prompts
 from audicop.hardware import HardwareInfo
+from audicop.llm import ChatMessage, Provider
 from audicop.recommender import ModelChoice
+from audicop.transcriber import TranscriptSegment
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,14 +302,132 @@ def render_input_summary(media: MediaInput) -> None:
     st.success(f"{location} · **{media.name}** · {_format_mb(media.size_bytes)}")
 
 
+def _resolve_chat_input(transcript_chars: int) -> str | None:
+    """Render quick-action buttons + chat box, return the user's prompt if any."""
+    st.caption("Atajos:")
+    cols = st.columns(len(prompts.QUICK_ACTIONS))
+    clicked: str | None = None
+    for col, action in zip(cols, prompts.QUICK_ACTIONS, strict=True):
+        if col.button(action.label, use_container_width=True):
+            clicked = action.prompt
+
+    if transcript_chars > config.LONG_TRANSCRIPT_CHARS:
+        st.warning(
+            "La transcripción es muy larga. Puede superar el límite del modelo o "
+            "encarecer la consulta. Considera un modelo de contexto amplio "
+            "(p. ej. Gemini) o preguntar por tramos."
+        )
+
+    typed = st.chat_input("Pregunta sobre el audio… (cita momentos como [12:34])")
+    return clicked or typed
+
+
+def render_ai_panel(transcript_timestamped: str, *, language: str, duration_seconds: float) -> None:
+    """Render the bring-your-own-key AI chat/analysis over the transcript.
+
+    Owns the chat interaction loop; delegates the actual provider call to
+    :func:`audicop.llm.stream_chat`. The API key lives only in
+    ``st.session_state`` (never written to disk).
+
+    Args:
+        transcript_timestamped: Transcript as ``[MM:SS] text`` (the AI context).
+        language: Detected/forced language code of the audio.
+        duration_seconds: Audio duration in seconds.
+    """
+    st.divider()
+    st.subheader("🤖 Analiza con IA")
+    st.caption(
+        "Resume, extrae tareas o pregunta lo que quieras sobre el audio. "
+        "Usa tu propia API key (gratis en Gemini)."
+    )
+
+    col_provider, col_model = st.columns(2)
+    with col_provider:
+        provider: Provider = st.selectbox(
+            "Proveedor",
+            options=["openai", "gemini"],
+            index=1,  # Gemini default (free tier)
+            format_func=lambda p: llm.PROVIDER_LABELS[p],
+        )
+    with col_model:
+        model = st.selectbox("Modelo", options=list(llm.available_models(provider)))
+
+    api_key = st.text_input(
+        "API key",
+        type="password",
+        key="llm_api_key",
+        help=llm.API_KEY_HELP[provider],
+        placeholder="Se queda solo en memoria; no se guarda en disco.",
+    )
+
+    st.warning(
+        f"⚠️ Al usar el chat, el **texto** de la transcripción se envía a "
+        f"**{llm.PROVIDER_LABELS[provider]}** con tu API key. El audio nunca sale "
+        f"de tu equipo; sólo el texto, y sólo cuando preguntas."
+    )
+
+    history: list[ChatMessage] = st.session_state.setdefault("chat_history", [])
+
+    top = st.container()
+    with top:
+        cols = st.columns([1, 1, 4])
+        if cols[0].button("🧹 Limpiar", use_container_width=True):
+            history.clear()
+            st.rerun()
+
+    for msg in history:
+        st.chat_message(msg.role).markdown(msg.content)
+
+    user_text = _resolve_chat_input(len(transcript_timestamped))
+    if not user_text:
+        return
+
+    if not (api_key or "").strip():
+        st.error("Pega tu API key arriba para usar el chat.")
+        return
+
+    history.append(ChatMessage(role="user", content=user_text))
+    st.chat_message("user").markdown(user_text)
+
+    system = (
+        prompts.SYSTEM_PROMPT
+        + "\n\n"
+        + prompts.build_context(
+            transcript_timestamped, language=language, duration_seconds=duration_seconds
+        )
+    )
+
+    with st.chat_message("assistant"):
+        try:
+            stream = llm.stream_chat(
+                provider=provider,
+                api_key=api_key,
+                model=model,
+                system=system,
+                messages=history,
+            )
+            reply = st.write_stream(stream)
+        except llm.LLMError as exc:
+            st.error(str(exc))
+            history.pop()  # drop the user turn we couldn't answer
+            return
+
+    history.append(ChatMessage(role="assistant", content=str(reply)))
+
+
 def render_privacy_footer() -> None:
-    """Render a small footer reassuring the user that the app is local-only."""
+    """Render a footer clarifying what stays local and what leaves the machine."""
     with st.expander("🔒 Privacidad — qué hace y qué NO hace Audicop"):
         st.markdown(
             """
-**100% local.** Tu audio nunca sale de este equipo. La única conexión a
-internet es la **descarga inicial del modelo** desde HuggingFace, y sólo
-la primera vez que usas cada tamaño.
+**La transcripción es 100% local.** Tu audio nunca sale de este equipo. La
+única conexión a internet para transcribir es la **descarga inicial del
+modelo** desde HuggingFace, y sólo la primera vez que usas cada tamaño.
+
+**El chat con IA es la excepción.** Si lo usas, el **texto** de la
+transcripción se envía al proveedor que elijas (OpenAI o Gemini) con tu
+propia API key. El audio original **nunca** se sube; sólo el texto, y sólo
+cuando tú usas el chat. La key vive sólo en memoria — no se guarda en disco.
 
 **Para detectar el hardware** uso únicamente:
 - `psutil` → cuenta de cores y memoria total/libre. No lee procesos ni archivos.
@@ -316,29 +436,64 @@ la primera vez que usas cada tamaño.
 - `platform` (stdlib de Python) → nombre del sistema operativo.
 
 **Lo que NUNCA hace:**
-- Subir tus archivos a ninguna nube.
+- Subir tus archivos de audio/vídeo a ninguna nube.
 - Enviar telemetría, analytics o "phone home".
 - Acceder a webcam, micrófono ni portapapeles.
-- Leer archivos fuera de los que tú subes manualmente.
-
-¿Sin internet? Funciona igual una vez descargado el modelo.
+- Guardar tu API key en disco o en logs.
             """
         )
 
 
-def render_results(text: str, base_filename: str) -> None:
-    """Render the final transcription with download + copy actions."""
-    st.success("Transcripción completada.")
-    st.text_area("Texto", value=text, height=300, label_visibility="collapsed")
+def render_results(segments: list[TranscriptSegment], base_filename: str) -> None:
+    """Render the transcription with plain / timestamped / export views.
 
-    cols = st.columns(2)
-    with cols[0]:
-        st.download_button(
-            "⬇️ Descargar .txt",
-            data=text.encode("utf-8"),
-            file_name=f"{base_filename}.txt",
-            mime="text/plain",
-            use_container_width=True,
+    Args:
+        segments: Decoded segments (carry start/end for timestamps + subtitles).
+        base_filename: Source file stem, used for download file names.
+    """
+    plain = formatting.to_plain_text(segments)
+    timestamped = formatting.to_timestamped_text(segments)
+
+    st.success("✅ Transcripción completada.")
+
+    tab_plain, tab_ts, tab_export = st.tabs(["📄 Texto", "⏱️ Con marcas de tiempo", "⬇️ Exportar"])
+
+    with tab_plain:
+        st.caption("Texto corrido, listo para copiar y pegar.")
+        st.code(plain or "(sin texto)", language="text")
+
+    with tab_ts:
+        st.caption("Estilo YouTube: cada línea con el momento en que se dijo.")
+        st.code(timestamped or "(sin texto)", language="text")
+
+    with tab_export:
+        st.caption("Descarga en el formato que necesites.")
+        col_txt, col_srt, col_vtt = st.columns(3)
+        with col_txt:
+            st.download_button(
+                "📄 .txt",
+                data=plain.encode("utf-8"),
+                file_name=f"{base_filename}{config.TXT_SUFFIX}",
+                mime="text/plain",
+                use_container_width=True,
+            )
+        with col_srt:
+            st.download_button(
+                "🎬 .srt",
+                data=formatting.to_srt(segments).encode("utf-8"),
+                file_name=f"{base_filename}{config.SRT_SUFFIX}",
+                mime="text/plain",
+                use_container_width=True,
+            )
+        with col_vtt:
+            st.download_button(
+                "🌐 .vtt",
+                data=formatting.to_vtt(segments).encode("utf-8"),
+                file_name=f"{base_filename}{config.VTT_SUFFIX}",
+                mime="text/plain",
+                use_container_width=True,
+            )
+        st.caption(
+            "💡 ¿Quieres analizarlo con IA (resumen, puntos clave, tareas)? "
+            "Usa el panel de abajo, o copia el texto y pégalo en tu IA favorita."
         )
-    with cols[1], st.expander("📋 Copiar al portapapeles"):
-        st.code(text, language="text")

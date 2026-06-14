@@ -1,14 +1,36 @@
 # 🎙️ Audicop
 
-> Suelta cualquier audio o vídeo. Recibe el texto. Sin configurar nada.
+> Suelta cualquier audio o vídeo. Recibe el texto, con marcas de tiempo, y
+> analízalo con IA. Todo local, sin configurar nada.
 
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
 [![Streamlit](https://img.shields.io/badge/built%20with-Streamlit-FF4B4B.svg)](https://streamlit.io/)
+[![faster-whisper](https://img.shields.io/badge/engine-faster--whisper-0f172a.svg)](https://github.com/SYSTRAN/faster-whisper)
+[![uv](https://img.shields.io/badge/deps-uv-2563eb.svg)](https://docs.astral.sh/uv/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Audicop es una app web local de transcripción que se ejecuta enteramente
-en tu máquina. Detecta el hardware automáticamente y elige el mejor
-modelo Whisper que tu equipo puede correr — sin que tengas que pensarlo.
+App web **local** que transcribe y traduce audio/vídeo con Whisper. Autodetecta
+tu hardware y elige el mejor modelo que tu equipo puede correr — sin que tengas
+que pensarlo. Además te da timestamps estilo YouTube, export a SRT/VTT y un chat
+con IA (tu propia API key) para resumir y analizar lo dicho.
+
+---
+
+## 📋 Contenido
+
+- [🚀 Instalación](#-instalación)
+- [✨ Funciones](#-funciones)
+- [🧠 Cómo funciona](#-cómo-funciona)
+- [🖥️ Hardware soportado](#️-hardware-soportado)
+- [🎞️ Formatos y límites](#️-formatos-y-límites)
+- [🤖 Análisis con IA](#-análisis-con-ia)
+- [🔐 Privacidad](#-privacidad)
+- [🩺 Problemas comunes](#-problemas-comunes)
+- [🧰 Stack](#-stack)
+- [🗺️ Roadmap](#️-roadmap)
+- [👤 Autor](#-autor)
+- [📜 License](#-license)
+- [🌎 English](#-english)
 
 ---
 
@@ -16,16 +38,13 @@ modelo Whisper que tu equipo puede correr — sin que tengas que pensarlo.
 
 ### Windows (la mayoría de usuarios)
 
-1. **Descarga el proyecto.** En este repo, clic verde "Code" → "Download ZIP".
-   Descomprime donde quieras.
-2. **Doble clic en `scripts\run.bat`.** Se abre una ventana negra que va
-   informando de cada paso.
-3. **Espera 5–10 minutos** la primera vez (instala todo, descarga el modelo
-   Whisper). Las siguientes veces arranca en segundos.
-4. Tu navegador se abre solo en `http://localhost:8501`. **Listo.**
-
-> 💡 La ventana negra se queda abierta. Para parar la app, ciérrala o pulsa
-> `Ctrl+C`.
+1. **Descarga el proyecto.** Botón verde "Code" → "Download ZIP". Descomprime
+   donde quieras.
+2. **Doble clic en `scripts\run.bat`.** Se abre una ventana que va informando
+   de cada paso.
+3. **Espera 5–10 minutos** la primera vez (instala todo y descarga el modelo).
+   Las siguientes veces arranca en segundos.
+4. Se abre tu navegador en `http://localhost:8501`. **Listo.**
 
 ### macOS / Linux
 
@@ -35,56 +54,59 @@ cd audicop
 ./scripts/run.sh
 ```
 
-### ¿Qué hace el script automáticamente?
+### ¿Qué hace el script solo?
 
 1. Instala [`uv`](https://docs.astral.sh/uv/) (gestor de Python rápido) si no lo tienes.
-2. Detecta tu hardware: si tienes GPU NVIDIA, instala las librerías CUDA
-   automáticamente.
-3. Crea un entorno virtual aislado con todas las dependencias (versiones
-   pinchadas vía `uv.lock` — sin sorpresas entre máquinas).
-4. Lanza la app en `http://localhost:8501`.
+2. Detecta GPU NVIDIA y, si la hay, instala las librerías CUDA automáticamente.
+3. Crea un entorno aislado con dependencias pinchadas vía `uv.lock`.
+4. Lanza la app.
 
-**No necesitas Python instalado** — `uv` lo descarga si hace falta. **No necesitas
-ffmpeg** — viene empaquetado. **No necesitas CUDA toolkit** — sólo el driver NVIDIA.
+> **No necesitas** Python instalado (uv lo trae), ni ffmpeg (va empaquetado), ni
+> CUDA toolkit (solo el driver NVIDIA).
+
+**¿Quieres el chat con IA?** Instala el extra una vez: `uv sync --extra ai`.
 
 ---
 
-## ✨ Features
+## ✨ Funciones
 
-- 🤖 **Autodetección de hardware** — elige modelo y `compute_type` por ti.
-- 🎬 **Multi-formato** — audio (mp3, wav, m4a, ogg, flac, aac) y vídeo (mp4, mkv, mov, avi, webm).
-- 📦 **Sin ffmpeg de sistema** — el binario viene incluido vía `imageio-ffmpeg`.
-- 🔒 **100% local** — nada sale de tu equipo.
-- ⚡ **Streaming** — el texto aparece a medida que se transcribe, con barra de progreso.
+- 🤖 **Autodetección de hardware** — elige modelo y `compute_type` por ti, según
+  la memoria **libre** (no la total), para no ahogar tu equipo.
+- 🎬 **Multi-formato** — audio (mp3, wav, m4a, ogg, flac, aac) y vídeo (mp4, mkv,
+  mov, avi, webm — extrae sólo el audio).
+- ⏱️ **Timestamps estilo YouTube** — cada línea con el minuto en que se dijo.
+- ⬇️ **Export** — descarga `.txt`, `.srt` y `.vtt`.
+- 🧠 **Chat con IA (BYO key)** — resume, saca tareas o pregunta lo que quieras
+  sobre el audio con OpenAI o Gemini.
+- 📦 **Sin dependencias de sistema** — ffmpeg y CUDA vienen vía pip.
+- 🔒 **Local y privado** — la transcripción nunca sale de tu equipo.
 - 🌍 **Multi-idioma** — autodetección o forzado (es, en, pt, fr, it, de).
-- 🛠️ **Modo avanzado** — sobrescribe la recomendación si quieres.
 
 ---
 
 ## 🧠 Cómo funciona
 
-```mermaid
-flowchart LR
-    A[Subes archivo] --> B[ffmpeg<br/>16 kHz mono WAV]
-    B --> C[faster-whisper<br/>WhisperModel]
-    C --> D[Segments<br/>stream]
-    D --> E[UI Streamlit<br/>texto + descarga]
+```
+┌──────────────┐   ┌───────────┐   ┌──────────────────┐   ┌──────────┐   ┌──────────────┐
+│ Subir / Ruta │ → │  ffmpeg   │ → │  faster-whisper  │ → │ Segments │ → │  UI: texto,  │
+│  audio/vídeo │   │ 16kHz mono│   │   (CTranslate2)  │   │ + tiempos│   │ SRT/VTT, IA  │
+└──────────────┘   └───────────┘   └──────────────────┘   └──────────┘   └──────────────┘
+        (local)        (local)            (local)                          (IA = opcional, nube)
 ```
 
-1. Subes un archivo (≤ 1 GB).
-2. ffmpeg empaquetado lo convierte a 16 kHz mono.
-3. faster-whisper decodifica y emite segmentos a medida que avanza.
-4. Streamlit los muestra y, al terminar, ofrece descarga `.txt` y copia.
-5. Los temporales se borran al final.
+1. Subes un archivo (≤ 2 GB) o pegas una ruta local (sin límite de tamaño).
+2. El ffmpeg empaquetado extrae el audio a 16 kHz mono.
+3. faster-whisper decodifica y emite segmentos con marcas de tiempo.
+4. La UI los muestra (texto / timestamps / export) y ofrece el chat con IA.
+5. Los temporales se borran al terminar.
 
 ---
 
 ## 🖥️ Hardware soportado
 
-Audicop elige el modelo según la memoria **libre** (no la total) en el
-momento de detección. Si tienes 16 GB de RAM pero el navegador y el
-sistema operativo usan 10, sólo quedan 6 GB realmente disponibles —
-respetar eso evita que el equipo se ahogue.
+Audicop elige el modelo según la memoria **libre** en el momento de detección.
+Tener 16 GB de RAM no significa poder dedicarlos todos: el SO y otras apps
+consumen una parte, y respetarla evita que el equipo se ahogue.
 
 | Recurso libre                     | model_size  | compute_type   |
 |-----------------------------------|-------------|----------------|
@@ -96,174 +118,113 @@ respetar eso evita que el equipo se ahogue.
 | Solo CPU, RAM libre 3–6 GB        | base        | int8           |
 | Solo CPU, RAM libre < 3 GB        | tiny        | int8           |
 
-> Si no estás de acuerdo con la elección, abre **Modo avanzado** en la
-> barra lateral y fuerza el modelo y `compute_type` que prefieras. O
-> cierra apps que consuman memoria y recarga la página para que recalcule.
+> Abre **Modo avanzado** en la barra lateral para forzar otro modelo, o cierra
+> apps y recarga para que recalcule con más memoria libre.
 
 ---
 
 ## 🎞️ Formatos y límites
 
 - **Audio:** mp3, wav, m4a, ogg, flac, aac
-- **Vídeo:** mp4, mkv, mov, avi, webm — *se extrae sólo la pista de audio* via
-  `ffmpeg -vn`, así que un vídeo de 5 GB y su versión "audio extraído" pesan
-  lo mismo a la hora de transcribir.
-- **Duración soportada:** hasta **3 horas** probadas. Whisper procesa con una
-  ventana deslizante de 30 s, así que la VRAM se mantiene constante sin
-  importar la duración total — puedes forzar más, pero ahí ya estamos fuera
-  de la envolvente probada.
-- **Tamaño máximo de subida:** **2 GB** por la pestaña "Subir archivo".
+- **Vídeo:** mp4, mkv, mov, avi, webm — *se extrae sólo la pista de audio*.
+- **Duración:** hasta **3 horas** probadas (Whisper usa ventanas de 30 s, así que
+  la VRAM no crece con la duración).
+- **Subida:** hasta **2 GB** por la pestaña "Subir archivo". ¿Vídeo más grande?
+  usa **"Archivo local"** y pega la ruta absoluta — Audicop lee del disco, sin
+  subida ni límite.
 
-### Vídeos grandes (> 2 GB) → pestaña "Archivo local"
+### ¿Cuánto tarda? (referencia, 1 hora de audio)
 
-Si tu vídeo supera los 2 GB (típico de HD/4K de varias horas), usa la
-pestaña **"Archivo local"** y pega la ruta absoluta. Audicop lee el archivo
-**directamente del disco**, sin subida — más rápido y sin límite de tamaño.
-Sólo funciona porque la app corre en tu máquina; no expone tu disco a
-ningún proceso externo.
-
-### ¿Cuánto tarda?
-
-Depende de tu hardware. Audicop te lo muestra en pantalla, pero como
-referencia rápida (1 hora de audio):
-
-| Hardware                 | Modelo elegido      | Tiempo estimado |
-|--------------------------|---------------------|-----------------|
-| GPU NVIDIA (≥ 4 GB libre)| `large-v3` int8_fp16| ~10 min         |
-| GPU NVIDIA gama media    | `medium`            | ~6 min          |
-| Solo CPU, 16 GB RAM      | `small` int8        | ~60 min         |
-| Solo CPU, 8 GB RAM       | `base` int8         | ~25 min         |
-| Solo CPU, < 8 GB RAM     | `tiny` int8         | ~12 min         |
+| Hardware                  | Modelo              | Estimado |
+|---------------------------|---------------------|----------|
+| GPU NVIDIA (≥ 4 GB libre) | `large-v3` int8_fp16| ~10 min  |
+| GPU NVIDIA gama media     | `medium`            | ~6 min   |
+| Solo CPU, 16 GB RAM       | `small` int8        | ~60 min  |
+| Solo CPU, < 8 GB RAM      | `tiny` int8         | ~12 min  |
 
 ---
 
-## 🔒 Privacidad y red
+## 🤖 Análisis con IA
 
-Audicop es **local por diseño**. Tu audio nunca sale de tu equipo.
+Tras transcribir, aparece el panel **"Analiza con IA"**:
 
-**Lo único que toca la red, y sólo una vez por modelo:**
+1. Elige proveedor: **OpenAI** o **Google Gemini** (capa gratis generosa).
+2. Pega tu **API key** (se queda solo en memoria; nunca se guarda en disco).
+3. Usa los atajos (Resumen, Puntos clave, Tareas y acuerdos, Acta) o escribe tu
+   propia pregunta. Las respuestas **citan los minutos** `[MM:SS]`.
 
-- Descarga del modelo Whisper desde
-  [huggingface.co/Systran](https://huggingface.co/Systran) en la primera
-  ejecución. La app te avisa antes de descargar.
+> Consigue tu key gratis en [Google AI Studio](https://aistudio.google.com/apikey)
+> o en [OpenAI](https://platform.openai.com/api-keys).
 
-**Lo que NUNCA hace Audicop:**
-
-- ❌ Subir tus archivos a ninguna nube.
-- ❌ Enviar telemetría, analytics ni "phone home".
-- ❌ Acceder a webcam, micrófono o portapapeles.
-- ❌ Leer archivos fuera de los que tú subes manualmente.
-
-**Paquetes usados para detectar tu hardware** (todos open source y
-verificables):
-
-| Paquete       | Para qué                                  | Permisos       |
-|---------------|-------------------------------------------|----------------|
-| `psutil`      | Cuenta de cores y memoria total / libre   | Sólo lectura   |
-| `nvidia-smi`  | Nombre + memoria de GPU NVIDIA            | Sólo lectura   |
-| `platform`    | Nombre del sistema operativo (stdlib)     | Sólo lectura   |
-
-Si quieres aislar completamente el equipo: descarga el modelo en otra
-máquina con `huggingface-cli download Systran/faster-whisper-<size>` y
-copia `~/.cache/huggingface/hub/` antes de ejecutar Audicop.
+¿Prefieres otra IA? Copia el texto (con o sin timestamps) y pégalo en Claude,
+ChatGPT, etc.
 
 ---
 
-## ⚙️ Configuración avanzada
+## 🔐 Privacidad
 
-Para forzar un modelo concreto, usa el panel **Modo avanzado** en la
-barra lateral. La idea es que toda la configuración viva en la UI; no
-hay flags ni variables de entorno que aprender.
+| Acción                    | ¿Sale a la red?                                        |
+|---------------------------|--------------------------------------------------------|
+| Detección de hardware     | ❌ (psutil, nvidia-smi, platform — solo lectura)       |
+| Conversión + transcripción| ❌ (local; el modelo solo se descarga la 1ª vez)       |
+| **Chat con IA**           | ✅ Envía el **texto** de la transcripción al proveedor  |
+|                           | elegido con **tu** API key. El audio nunca se sube.    |
 
-### Comandos útiles con uv
-
-```bash
-uv sync                                # instalar / actualizar deps
-uv sync --extra dev                    # incluye ruff, mypy, pytest
-uv run streamlit run audicop/app.py    # arranca la app sin activar el venv
-uv run pytest                          # corre los tests
-uv run ruff check .                    # lint
-uv lock --upgrade                      # actualiza el lock a las últimas versiones
-```
+La API key vive solo en la sesión: **nunca** se escribe a disco ni a logs.
+Sin telemetría, sin analytics, sin acceso a webcam/micrófono/portapapeles.
+Detalle completo en [AGENTS.md](AGENTS.md) §3.
 
 ---
 
-## 🆘 Troubleshooting
+## 🩺 Problemas comunes
 
-**El modelo tarda mucho en descargarse la primera vez.**
-Es normal: `large-v3` ocupa ~3 GB. Las siguientes ejecuciones leen el
-modelo desde la caché de HuggingFace en tu disco.
-
-**Sale `WinError 1314` o "el cliente no dispone de un privilegio requerido" en Windows.**
-Audicop ya detecta este caso automáticamente: si tu cuenta de Windows no
-tiene permiso para crear enlaces simbólicos (lo típico en laptops
-corporativas con cuenta estándar), descargamos el modelo como archivos
-copiados en `~/.cache/audicop/models/`. Si aun así falla, prueba a
-borrar `~/.cache/huggingface` (puede tener una descarga parcial corrupta
-de antes) y vuelve a abrir la app.
-
-**No detecta mi GPU NVIDIA.**
-Audicop usa `nvidia-smi` para detectar la GPU. Abre una terminal y
-verifica que el comando funciona:
-
-```bash
-nvidia-smi
-```
-
-Si no funciona, faltan o están corruptos los drivers de NVIDIA;
-descárgalos desde https://www.nvidia.com/Download/index.aspx. Si
-`nvidia-smi` funciona pero la app aún muestra "Sin CUDA", relanza
-`scripts/run.sh` (o `scripts\run.bat`) — el script reinstalará las libs
-CUDA en el venv automáticamente al detectar la GPU.
-
-**`ffmpeg failed to convert`.**
-El archivo de origen probablemente está corrupto o usa un códec exótico.
-Prueba a reconvertirlo o a abrirlo en VLC para verificar que se reproduce.
-
-**Mi archivo pesa más de 1 GB.**
-Sube el límite editando `.streamlit/config.toml` (`maxUploadSize`).
-Para audios muy largos, considera dividirlos antes de transcribir.
-
-**`CUDA out of memory`.**
-Tu GPU se quedó sin VRAM con el modelo recomendado. Abre **Modo avanzado**
-y baja a un tamaño más pequeño (p. ej. `medium` o `small`) o cambia
-`compute_type` a `int8_float16`.
+| Problema | Solución |
+|----------|----------|
+| El modelo tarda en la 1ª descarga | Normal (`large-v3` ~3 GB). Luego sale de caché. |
+| `WinError 1314` / "privilegio requerido" | Audicop ya lo maneja: descarga sin symlinks a `~/.cache/audicop/models`. Si persiste, borra `~/.cache/huggingface` y reabre. |
+| No detecta mi GPU NVIDIA | Verifica que `nvidia-smi` funciona. Relanza `run.bat`/`run.sh`: instala CUDA solo. |
+| `ffmpeg failed to convert` | El origen está corrupto o usa un códec raro. Reconviértelo o ábrelo en VLC. |
+| `CUDA out of memory` | Abre **Modo avanzado** y baja de modelo (`medium`/`small`). |
+| El chat IA dice "no está instalado" | Ejecuta `uv sync --extra ai`. |
 
 ---
 
-## 🧱 Stack y créditos
+## 🧰 Stack
 
-- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — motor de
-  transcripción basado en CTranslate2.
-- [Whisper](https://github.com/openai/whisper) de OpenAI — el modelo
-  subyacente. Audicop sólo provee la envoltura local.
-- [Streamlit](https://streamlit.io/) — UI.
-- [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg) — binario
-  ffmpeg empaquetado vía pip.
-- [psutil](https://github.com/giampaolo/psutil) — detección de CPU/RAM.
-- [`nvidia-smi`](https://developer.nvidia.com/nvidia-system-management-interface) —
-  detección de GPU (instalado con cualquier driver NVIDIA).
-- [`nvidia-cublas-cu12`](https://pypi.org/project/nvidia-cublas-cu12/) y
-  [`nvidia-cudnn-cu12`](https://pypi.org/project/nvidia-cudnn-cu12/) —
-  runtime CUDA empaquetado en wheels (sólo si tienes GPU). No necesitas
-  instalar el toolkit CUDA del sistema.
-- [uv](https://docs.astral.sh/uv/) — gestor de Python y dependencias.
+| Capa            | Tecnología                                              |
+|-----------------|---------------------------------------------------------|
+| UI              | Streamlit (tema "Slate" oscuro — ver [DESIGN.md](DESIGN.md)) |
+| Motor ASR       | faster-whisper (CTranslate2) · modelo Whisper de OpenAI |
+| Audio           | imageio-ffmpeg (binario empaquetado)                    |
+| Hardware        | psutil + nvidia-smi                                     |
+| GPU (opcional)  | nvidia-cublas-cu12 + nvidia-cudnn-cu12                  |
+| IA (opcional)   | openai + google-genai (bring-your-own-key)              |
+| Tooling         | uv · ruff · mypy · pytest                               |
+
+Créditos: [faster-whisper](https://github.com/SYSTRAN/faster-whisper),
+[Whisper](https://github.com/openai/whisper) (OpenAI),
+[Streamlit](https://streamlit.io/), [uv](https://docs.astral.sh/uv/).
 
 ---
 
 ## 🗺️ Roadmap
 
+- [x] Autodetección de hardware + recomendación por memoria libre.
+- [x] Fallback de descarga sin symlinks (Windows restringido).
+- [x] Timestamps estilo YouTube + export SRT/VTT.
+- [x] Chat / análisis con IA (OpenAI/Gemini, BYO key).
 - [ ] Diarización (separar hablantes).
-- [ ] Exportar a **SRT** y **VTT** con timestamps.
-- [ ] Modo batch para procesar varias carpetas a la vez.
-- [ ] Resaltado en el reproductor sincronizado con el texto.
+- [ ] Proceso por lotes (varias carpetas).
+- [ ] Más proveedores IA (Anthropic, modelos locales vía Ollama).
+
+Issues y PRs bienvenidos — ver [CONTRIBUTING.md](CONTRIBUTING.md).
+Convenciones del proyecto en [AGENTS.md](AGENTS.md) y [DESIGN.md](DESIGN.md).
 
 ---
 
-## 🤝 Contributing
+## 👤 Autor
 
-Issues y PRs bienvenidos. Lee [CONTRIBUTING.md](CONTRIBUTING.md) para los
-detalles de tests y estilo.
+**JoseAAA** · [github.com/JoseAAA](https://github.com/JoseAAA)
 
 ---
 
@@ -273,14 +234,16 @@ MIT — ver [LICENSE](LICENSE).
 
 ---
 
-## English
+## 🌎 English
 
-> Drop any audio or video, get text. Zero config.
+> Drop any audio or video, get timestamped text, and analyze it with AI.
+> All local, zero config.
 
-Audicop is a local web app that transcribes audio and video files using
-[faster-whisper](https://github.com/SYSTRAN/faster-whisper). It detects
-your hardware (CPU, RAM, NVIDIA GPU + VRAM) and picks the best Whisper
-model your machine can run. Everything stays on your computer.
+Audicop is a **local** web app that transcribes and translates audio/video with
+faster-whisper. It detects your hardware (CPU, RAM, NVIDIA GPU + VRAM) and picks
+the best Whisper model your machine can run. It adds YouTube-style timestamps,
+SRT/VTT export, and an optional AI chat (bring your own OpenAI/Gemini key) to
+summarize and analyze what was said.
 
 ### Quick start
 
@@ -290,15 +253,14 @@ cd audicop
 ./scripts/run.sh        # or scripts\run.bat on Windows
 ```
 
-Open http://localhost:8501.
+Open `http://localhost:8501`. For the AI chat: `uv sync --extra ai`.
 
 ### Highlights
 
-- Auto-selects the right Whisper model for your hardware.
-- Supports common audio (mp3, wav, m4a, ogg, flac, aac) and video (mp4,
-  mkv, mov, avi, webm) formats.
-- ffmpeg is bundled — no system install required.
-- 100% local; the only network call is the initial model download.
-- Streams partial transcripts with a progress bar.
+- Auto-selects the right Whisper model based on **free** memory.
+- Audio + video formats; ffmpeg and CUDA bundled via pip.
+- Transcription is 100% local. Only the optional AI chat sends the **text**
+  (never the audio) to the provider you choose, with your own key.
+- Timestamped transcript, SRT/VTT export, streaming AI answers that cite moments.
 
-See the Spanish sections above for the full documentation.
+See the Spanish sections above for full documentation.

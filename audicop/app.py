@@ -14,14 +14,20 @@ from pathlib import Path
 
 import streamlit as st
 
-from audicop import config
+from audicop import config, formatting
 from audicop.audio import AudioConversionError, cleanup, get_duration_seconds, to_wav_16k
 from audicop.hardware import HardwareInfo, detect_hardware
 from audicop.recommender import ModelChoice, recommend
-from audicop.transcriber import Transcriber, TranscriptionError, is_model_cached
+from audicop.transcriber import (
+    Transcriber,
+    TranscriptionError,
+    TranscriptSegment,
+    is_model_cached,
+)
 from audicop.ui import (
     MediaInput,
     TranscriptionSettings,
+    render_ai_panel,
     render_header,
     render_input_summary,
     render_privacy_footer,
@@ -134,13 +140,12 @@ def _run_transcription(
 
             progress_bar = st.progress(0.0, text="0%")
             live_text = st.empty()
-            collected: list[str] = []
+            segments: list[TranscriptSegment] = []
             start_ts = time.monotonic()
 
             for seg in segments_iter:
-                if seg.text:
-                    collected.append(seg.text)
-                live_text.markdown("\n\n".join(collected[-30:]))
+                segments.append(seg)
+                live_text.markdown("\n\n".join(s.text for s in segments[-30:] if s.text))
                 if effective_duration > 0:
                     pct = min(seg.end / effective_duration, 1.0)
                     elapsed = time.monotonic() - start_ts
@@ -154,20 +159,23 @@ def _run_transcription(
             progress_bar.progress(
                 1.0, text=f"100% · completado en {_format_seconds(total_elapsed)}"
             )
+            live_text.empty()
             status.update(label="Listo.", state="complete")
 
-        full_text = "\n".join(collected).strip()
-        if not full_text:
+        if not formatting.to_plain_text(segments):
             st.warning("No se detectó voz en el archivo.")
             return
 
-        base = Path(media.name).stem
-        render_results(full_text, base_filename=base)
-        st.caption(
-            f"Idioma detectado: `{info.language}` "
-            f"(probabilidad {info.language_probability:.2f}) · "
-            f"duración {effective_duration:.1f} s"
-        )
+        # Persist so the result (and the AI chat over it) survive Streamlit
+        # reruns. Starting a new transcription resets the chat context.
+        st.session_state["result_segments"] = segments
+        st.session_state["result_meta"] = {
+            "base": Path(media.name).stem,
+            "language": info.language,
+            "language_probability": info.language_probability,
+            "duration": effective_duration,
+        }
+        st.session_state["chat_history"] = []
 
     except FileNotFoundError as exc:
         logger.exception("Archivo no encontrado")
@@ -193,6 +201,30 @@ def _run_transcription(
 # ---------------------------------------------------------------------------
 # Page
 # ---------------------------------------------------------------------------
+def _render_result_and_ai() -> None:
+    """Render the stored transcription result and the AI panel, if any.
+
+    Reads from ``st.session_state`` so the result persists across the
+    reruns triggered by the chat widgets.
+    """
+    segments: list[TranscriptSegment] | None = st.session_state.get("result_segments")
+    if not segments:
+        return
+    meta = st.session_state["result_meta"]
+
+    render_results(segments, base_filename=meta["base"])
+    st.caption(
+        f"Idioma detectado: `{meta['language']}` "
+        f"(probabilidad {meta['language_probability']:.2f}) · "
+        f"duración {meta['duration']:.1f} s"
+    )
+    render_ai_panel(
+        formatting.to_timestamped_text(segments),
+        language=meta["language"],
+        duration_seconds=meta["duration"],
+    )
+
+
 def render_page() -> None:
     """Compose the full Streamlit page."""
     st.set_page_config(
@@ -210,14 +242,14 @@ def render_page() -> None:
     settings = render_sidebar(choice)
     media = render_uploader()
 
-    if media is None:
+    if media is not None:
+        render_input_summary(media)
+        if st.button("Transcribir", type="primary", use_container_width=True):
+            _run_transcription(media=media, settings=settings)
+    else:
         st.caption("Sube un archivo o pega una ruta local para empezar.")
-        render_privacy_footer()
-        return
 
-    render_input_summary(media)
-    if st.button("Transcribir", type="primary", use_container_width=True):
-        _run_transcription(media=media, settings=settings)
+    _render_result_and_ai()
     render_privacy_footer()
 
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "audicop"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local audio/video transcription with Streamlit and faster-whisper. Zero config."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -38,6 +38,13 @@ dependencies = [
 cuda = [
     "nvidia-cublas-cu12",
     "nvidia-cudnn-cu12>=9",
+]
+# Optional AI chat/analysis over the transcript (bring-your-own-key).
+# Install via `uv sync --extra ai`. Without it, transcription still works;
+# only the AI panel is unavailable.
+ai = [
+    "openai>=1.0",
+    "google-genai>=0.3",
 ]
 dev = [
     "ruff>=0.6",
@@ -105,14 +112,30 @@ warn_return_any = true
 warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
-module = ["audicop.hardware", "audicop.recommender", "audicop.audio", "audicop.transcriber"]
+module = [
+    "audicop.hardware",
+    "audicop.recommender",
+    "audicop.audio",
+    "audicop.transcriber",
+    "audicop.formatting",
+    "audicop.prompts",
+    "audicop.llm",
+]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 no_implicit_optional = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["faster_whisper.*", "imageio_ffmpeg.*", "psutil.*", "torch.*", "streamlit.*"]
+module = [
+    "faster_whisper.*",
+    "imageio_ffmpeg.*",
+    "psutil.*",
+    "torch.*",
+    "streamlit.*",
+    "openai.*",
+    "google.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

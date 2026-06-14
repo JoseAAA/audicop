@@ -6,6 +6,10 @@ runOnSave = false
 [browser]
 gatherUsageStats = false
 
+# "Slate" design system — see DESIGN.md. Dark, single blue accent.
 [theme]
-base = "light"
-primaryColor = "#5B8DEF"
+base = "dark"
+primaryColor = "#2563eb"
+backgroundColor = "#0f172a"
+secondaryBackgroundColor = "#1e293b"
+textColor = "#e2e8f0"

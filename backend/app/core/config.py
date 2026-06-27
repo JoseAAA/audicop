@@ -54,12 +54,18 @@ REALTIME_FACTORS: Final[dict[tuple[str, str], float]] = {
     ("base", "cpu"): 2.5,
     ("small", "cpu"): 1.0,
     ("medium", "cpu"): 0.4,
+    # large-v3-turbo has a 4-layer decoder (vs 32 in large-v3), so it is
+    # ~2-3x faster than large-v3 on CPU while keeping near-large-v3 quality.
+    ("large-v3-turbo", "cpu"): 0.4,
     ("large-v3", "cpu"): 0.15,
     # GPU side — measured on RTX 3060 Laptop, conservative for older cards.
     ("tiny", "cuda"): 30.0,
     ("base", "cuda"): 25.0,
     ("small", "cuda"): 18.0,
     ("medium", "cuda"): 10.0,
+    # Turbo's tiny decoder + the batched pipeline make it dramatically faster
+    # than large-v3 on GPU; conservative figure for older cards.
+    ("large-v3-turbo", "cuda"): 15.0,
     ("large-v3", "cuda"): 6.0,
 }
 
@@ -104,6 +110,7 @@ VALID_MODEL_SIZES: Final[tuple[str, ...]] = (
     "base",
     "small",
     "medium",
+    "large-v3-turbo",
     "large-v3",
 )
 
@@ -122,13 +129,14 @@ MODEL_DOWNLOAD_SIZES_MB: Final[dict[str, int]] = {
     "base": 145,
     "small": 480,
     "medium": 1500,
+    "large-v3-turbo": 1600,
     "large-v3": 3000,
 }
 
-# HuggingFace Hub names the cache directory after the repo. faster-whisper
-# pulls from `Systran/faster-whisper-<size>`, which becomes:
-#   ~/.cache/huggingface/hub/models--Systran--faster-whisper-<size>
-HF_REPO_PREFIX: Final[str] = "models--Systran--faster-whisper-"
+# Batch size for the GPU BatchedInferencePipeline. 8 keeps VRAM use modest
+# on consumer cards while still giving most of the throughput win; larger
+# batches help on big GPUs but risk OOM on the 4-6 GB cards we target.
+DEFAULT_BATCH_SIZE: Final[int] = 8
 
 # Audicop's own model cache, used when the standard HF cache cannot be
 # populated because Windows refuses symlink creation (WinError 1314 — see
@@ -136,7 +144,10 @@ HF_REPO_PREFIX: Final[str] = "models--Systran--faster-whisper-"
 # symlinks, so any user account on any Windows policy can read/write them.
 AUDICOP_CACHE_SUBPATH: Final[str] = ".cache/audicop/models"
 
-# faster-whisper repo template on HuggingFace.
+# Fallback faster-whisper repo template on HuggingFace. The transcriber
+# prefers faster-whisper's own size→repo mapping (so models hosted outside
+# the `Systran` org, like `large-v3-turbo`, resolve correctly) and only
+# falls back to this template if that mapping is unavailable.
 FASTER_WHISPER_REPO_TEMPLATE: Final[str] = "Systran/faster-whisper-{size}"
 
 DEFAULT_LANGUAGES: Final[tuple[str, ...]] = ("auto", "es", "en", "pt", "fr", "it", "de")
@@ -156,20 +167,22 @@ DEFAULT_VAD_FILTER: Final[bool] = True
 # system.
 # ---------------------------------------------------------------------------
 
-VRAM_FREE_HIGH_GB: Final[float] = 8.0
-"""Free VRAM (GB) above which we can comfortably run large-v3 in float16.
+VRAM_FREE_HIGH_GB: Final[float] = 6.0
+"""Free VRAM (GB) above which we run large-v3-turbo in float16.
 
-float16 large-v3 needs ~5 GB at peak; 8 GB free leaves comfortable headroom.
+float16 large-v3-turbo needs ~2-2.5 GB at peak (the turbo decoder is far
+smaller than large-v3's), so 6 GB free leaves comfortable headroom.
 """
 
-VRAM_FREE_MID_GB: Final[float] = 4.0
-"""Free VRAM (GB) above which we run large-v3 quantized (int8_float16).
+VRAM_FREE_MID_GB: Final[float] = 2.5
+"""Free VRAM (GB) above which we run large-v3-turbo quantized (int8_float16).
 
-int8_float16 large-v3 needs ~3 GB at peak.
+int8_float16 large-v3-turbo needs ~1.5 GB at peak — it fits where plain
+large-v3 never could, which is why turbo is the workhorse across most cards.
 """
 
-VRAM_FREE_LOW_GB: Final[float] = 2.5
-"""Free VRAM (GB) above which we run medium quantized."""
+VRAM_FREE_LOW_GB: Final[float] = 1.5
+"""Free VRAM (GB) above which we run small quantized (int8_float16)."""
 
 RAM_AVAILABLE_HIGH_GB: Final[float] = 6.0
 """Available RAM (GB) above which we run small (int8) on CPU.
@@ -199,44 +212,44 @@ class ModelTier:
 
 
 # Lookup table — referenced by `recommender.recommend()`.
-# IMPORTANT: matches the table in the README and the task brief verbatim.
+# IMPORTANT: matches the table in the README.
 GPU_HIGH_TIER: Final[ModelTier] = ModelTier(
-    model_size="large-v3",
+    model_size="large-v3-turbo",
     compute_type="float16",
     device="cuda",
     rationale=(
-        "VRAM libre ≥ 8 GB: usamos `large-v3` en `float16` para máxima precisión. "
-        "Quedará VRAM de sobra para el escritorio y otras apps."
+        "VRAM libre ≥ 6 GB: usamos `large-v3-turbo` en `float16` — calidad casi "
+        "idéntica a `large-v3` pero mucho más rápido. Sobra VRAM para el escritorio."
     ),
 )
 
 GPU_MID_TIER: Final[ModelTier] = ModelTier(
-    model_size="large-v3",
+    model_size="large-v3-turbo",
     compute_type="int8_float16",
     device="cuda",
     rationale=(
-        "VRAM libre entre 4 y 8 GB: `large-v3` cuantizado (`int8_float16`) entra "
-        "con holgura sin asfixiar al sistema operativo."
+        "VRAM libre entre 2.5 y 6 GB: `large-v3-turbo` cuantizado (`int8_float16`) "
+        "entra con holgura y mantiene gran calidad sin asfixiar al sistema."
     ),
 )
 
 GPU_LOW_TIER: Final[ModelTier] = ModelTier(
-    model_size="medium",
-    compute_type="int8_float16",
-    device="cuda",
-    rationale=(
-        "VRAM libre entre 2.5 y 4 GB: bajamos a `medium` con `int8_float16` "
-        "para dejar margen al display y al navegador."
-    ),
-)
-
-GPU_TINY_TIER: Final[ModelTier] = ModelTier(
     model_size="small",
     compute_type="int8_float16",
     device="cuda",
     rationale=(
-        "VRAM libre < 2.5 GB: usamos `small` con `int8_float16`. La GPU sigue "
-        "acelerando, pero protegemos al resto del sistema."
+        "VRAM libre entre 1.5 y 2.5 GB: usamos `small` con `int8_float16`. La GPU "
+        "sigue acelerando, pero protegemos al display y al navegador."
+    ),
+)
+
+GPU_TINY_TIER: Final[ModelTier] = ModelTier(
+    model_size="base",
+    compute_type="int8_float16",
+    device="cuda",
+    rationale=(
+        "VRAM libre < 1.5 GB: usamos `base` con `int8_float16` para no quedarnos "
+        "sin memoria. Cierra alguna app y recarga si quieres más calidad."
     ),
 )
 

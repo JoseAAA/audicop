@@ -79,13 +79,17 @@ def recommend(hw: HardwareInfo) -> ModelChoice:
 
     Logic:
 
-        - GPU, free VRAM >= 8 GB        -> large-v3 / float16
-        - GPU, free VRAM 4-8 GB         -> large-v3 / int8_float16
-        - GPU, free VRAM 2.5-4 GB       -> medium / int8_float16
-        - GPU, free VRAM < 2.5 GB       -> small / int8_float16
+        - GPU, free VRAM >= 6 GB        -> large-v3-turbo / float16
+        - GPU, free VRAM 2.5-6 GB       -> large-v3-turbo / int8_float16
+        - GPU, free VRAM 1.5-2.5 GB     -> small / int8_float16
+        - GPU, free VRAM < 1.5 GB       -> base / int8_float16
         - CPU, available RAM >= 6 GB    -> small / int8
         - CPU, available RAM 3-6 GB     -> base / int8
         - CPU, available RAM < 3 GB     -> tiny / int8
+
+    ``large-v3-turbo`` is also selectable manually for CPU users who want
+    near-large-v3 quality and accept a slower run; it is not a default
+    there because it roughly doubles wall time versus ``small``.
 
     If a GPU is present but its free VRAM is unknown, we fall back to
     total VRAM (or to the CPU path) so the recommendation is still safe.

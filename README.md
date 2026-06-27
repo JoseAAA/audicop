@@ -80,6 +80,10 @@ Todo queda dentro de la carpeta del proyecto. **No toca tu Python del sistema.**
 
 - 🤖 **Autodetección de hardware** — elige modelo y `compute_type` por ti, según
   la memoria **libre** (no la total), para no ahogar tu equipo.
+- ⚡ **Whisper turbo + batched** — usa `large-v3-turbo` (calidad casi `large-v3`,
+  mucho más rápido) y el *batched pipeline* en GPU para acelerar el decode.
+- 🗣️ **Pista de vocabulario** — escribe nombres, marcas o jerga de tu grabación
+  y Whisper los transcribe con más precisión (`initial_prompt`).
 - 🎬 **Multi-formato** — audio (mp3, wav, m4a, ogg, flac, aac) y vídeo (mp4, mkv,
   mov, avi, webm — extrae sólo el audio).
 - ⏱️ **Timestamps estilo YouTube** — cada línea con el minuto en que se dijo.
@@ -119,18 +123,24 @@ Audicop elige el modelo según la memoria **libre** en el momento de detección.
 Tener 16 GB de RAM no significa poder dedicarlos todos: el SO y otras apps
 consumen una parte, y respetarla evita que el equipo se ahogue.
 
-| Recurso libre                     | model_size  | compute_type   |
-|-----------------------------------|-------------|----------------|
-| GPU CUDA, VRAM libre ≥ 8 GB       | large-v3    | float16        |
-| GPU CUDA, VRAM libre 4–8 GB       | large-v3    | int8_float16   |
-| GPU CUDA, VRAM libre 2.5–4 GB     | medium      | int8_float16   |
-| GPU CUDA, VRAM libre < 2.5 GB     | small       | int8_float16   |
-| Solo CPU, RAM libre ≥ 6 GB        | small       | int8           |
-| Solo CPU, RAM libre 3–6 GB        | base        | int8           |
-| Solo CPU, RAM libre < 3 GB        | tiny        | int8           |
+| Recurso libre                     | model_size       | compute_type   |
+|-----------------------------------|------------------|----------------|
+| GPU CUDA, VRAM libre ≥ 6 GB       | large-v3-turbo   | float16        |
+| GPU CUDA, VRAM libre 2.5–6 GB     | large-v3-turbo   | int8_float16   |
+| GPU CUDA, VRAM libre 1.5–2.5 GB   | small            | int8_float16   |
+| GPU CUDA, VRAM libre < 1.5 GB     | base             | int8_float16   |
+| Solo CPU, RAM libre ≥ 6 GB        | small            | int8           |
+| Solo CPU, RAM libre 3–6 GB        | base             | int8           |
+| Solo CPU, RAM libre < 3 GB        | tiny             | int8           |
 
-> Abre **Modo avanzado** en la barra lateral para forzar otro modelo, o cierra
-> apps y recarga para que recalcule con más memoria libre.
+> **`large-v3-turbo`** es la versión con decoder destilado de `large-v3`:
+> calidad casi idéntica en los idiomas comunes (es/en…) pero **mucho más
+> rápida** y con menos VRAM. En GPU se usa además el *batched pipeline* de
+> faster-whisper para acelerar aún más.
+>
+> Abre **Opciones → Modo avanzado** (Paso 2) para forzar otro modelo
+> (`large-v3` para máxima calidad, o turbo en CPU si priorizas precisión sobre
+> velocidad), o cierra apps y recarga para que recalcule con más memoria libre.
 
 ---
 
@@ -146,12 +156,12 @@ consumen una parte, y respetarla evita que el equipo se ahogue.
 
 ### ¿Cuánto tarda? (referencia, 1 hora de audio)
 
-| Hardware                  | Modelo              | Estimado |
-|---------------------------|---------------------|----------|
-| GPU NVIDIA (≥ 4 GB libre) | `large-v3` int8_fp16| ~10 min  |
-| GPU NVIDIA gama media     | `medium`            | ~6 min   |
-| Solo CPU, 16 GB RAM       | `small` int8        | ~60 min  |
-| Solo CPU, < 8 GB RAM      | `tiny` int8         | ~12 min  |
+| Hardware                  | Modelo                   | Estimado |
+|---------------------------|--------------------------|----------|
+| GPU NVIDIA (≥ 6 GB libre) | `large-v3-turbo` float16 | ~4 min   |
+| GPU NVIDIA (2.5–6 GB)     | `large-v3-turbo` int8    | ~4 min   |
+| Solo CPU, 16 GB RAM       | `small` int8             | ~60 min  |
+| Solo CPU, < 8 GB RAM      | `tiny` int8              | ~12 min  |
 
 ---
 

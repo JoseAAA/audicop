@@ -91,7 +91,27 @@ _ensure_cuda_dll_search_path()
 
 # Imported AFTER the DLL path setup above; re-ordering this would break
 # ctranslate2 on Windows when the CUDA libs come from PyPI wheels.
-from faster_whisper import WhisperModel  # noqa: E402
+from faster_whisper import BatchedInferencePipeline, WhisperModel  # noqa: E402
+
+
+def _repo_id_for(model_size: str) -> str:
+    """Return the HuggingFace repo id for a faster-whisper model size.
+
+    Prefers faster-whisper's own size→repo mapping so that models hosted
+    outside the ``Systran`` org — notably ``large-v3-turbo``, which lives
+    under ``mobiuslabsgmbh`` — resolve to the correct repository. Falls
+    back to :data:`config.FASTER_WHISPER_REPO_TEMPLATE` if that (private)
+    mapping is ever unavailable.
+    """
+    try:
+        from faster_whisper.utils import _MODELS
+
+        repo = _MODELS.get(model_size)
+        if repo:
+            return str(repo)
+    except Exception:  # pragma: no cover - defensive against upstream API changes
+        logger.debug("faster_whisper _MODELS unavailable; using repo template", exc_info=True)
+    return config.FASTER_WHISPER_REPO_TEMPLATE.format(size=model_size)
 
 
 def _huggingface_cache_root() -> Path:
@@ -108,8 +128,13 @@ def _audicop_cache_root() -> Path:
 
 
 def _audicop_model_dir(model_size: str) -> Path:
-    """Return the directory where a model lives in Audicop's private cache."""
-    return _audicop_cache_root() / f"Systran--faster-whisper-{model_size}"
+    """Return the directory where a model lives in Audicop's private cache.
+
+    The directory name mirrors the model's HuggingFace repo id (``/``
+    replaced by ``--``), so each model — whatever org hosts it — gets its
+    own folder and there are no collisions.
+    """
+    return _audicop_cache_root() / _repo_id_for(model_size).replace("/", "--")
 
 
 _SYMLINK_PROBE_RESULT: bool | None = None
@@ -176,7 +201,8 @@ def is_model_cached(model_size: str) -> bool:
     False negatives are harmless: the user just sees the "downloading"
     notice for a model that turns out to load instantly.
     """
-    hf_dir = _huggingface_cache_root() / f"{config.HF_REPO_PREFIX}{model_size}"
+    repo_dirname = "models--" + _repo_id_for(model_size).replace("/", "--")
+    hf_dir = _huggingface_cache_root() / repo_dirname
     if hf_dir.is_dir() and any(hf_dir.iterdir()):
         return True
     audicop_dir = _audicop_model_dir(model_size)
@@ -198,7 +224,7 @@ def _download_model_no_symlinks(model_size: str) -> Path:
 
     target = _audicop_model_dir(model_size)
     target.mkdir(parents=True, exist_ok=True)
-    repo_id = config.FASTER_WHISPER_REPO_TEMPLATE.format(size=model_size)
+    repo_id = _repo_id_for(model_size)
     try:
         snapshot_download(repo_id=repo_id, local_dir=str(target))
     except Exception as exc:
@@ -284,6 +310,7 @@ class Transcriber:
         self.device = device
         self._download_root = str(download_root) if download_root is not None else None
         self._model: WhisperModel | None = None
+        self._batched_pipeline: BatchedInferencePipeline | None = None
 
     # ------------------------------------------------------------------
     # Model lifecycle
@@ -333,6 +360,12 @@ class Transcriber:
             ) from exc
         return self._model
 
+    def _get_batched_pipeline(self, model: WhisperModel) -> BatchedInferencePipeline:
+        """Return a cached :class:`BatchedInferencePipeline` over ``model``."""
+        if self._batched_pipeline is None:
+            self._batched_pipeline = BatchedInferencePipeline(model=model)
+        return self._batched_pipeline
+
     # ------------------------------------------------------------------
     # Decoding
     # ------------------------------------------------------------------
@@ -344,6 +377,7 @@ class Transcriber:
         task: str = "transcribe",
         beam_size: int = config.DEFAULT_BEAM_SIZE,
         vad_filter: bool = config.DEFAULT_VAD_FILTER,
+        initial_prompt: str | None = None,
     ) -> tuple[Iterator[TranscriptSegment], TranscriptionInfo]:
         """Transcribe a 16 kHz mono WAV file.
 
@@ -351,12 +385,21 @@ class Transcriber:
         segments and a :class:`TranscriptionInfo` describing the audio.
         Iterating the generator drives the actual decoding.
 
+        On CUDA we route the decode through faster-whisper's
+        :class:`BatchedInferencePipeline`, which processes several VAD
+        chunks at once and is markedly faster than the sequential path.
+        On CPU the batched pipeline brings little benefit, so we use the
+        plain sequential decode.
+
         Args:
             wav_path: Path to the prepared WAV file.
             language: Two-letter language code, or ``None`` to autodetect.
             task: ``"transcribe"`` or ``"translate"`` (translate to English).
             beam_size: Beam search width passed to faster-whisper.
             vad_filter: Whether to apply Silero VAD before decoding.
+            initial_prompt: Optional text (names, jargon, acronyms) that
+                primes the decoder's vocabulary to improve accuracy on
+                domain-specific audio. Empty/``None`` means no priming.
 
         Returns:
             Tuple ``(segments_iterator, info)``.
@@ -372,14 +415,28 @@ class Transcriber:
             raise FileNotFoundError(f"WAV de entrada no encontrado: {wav_path}")
 
         model = self.load()
+        prompt = initial_prompt or None
         try:
-            segments, info = model.transcribe(
-                str(wav_path),
-                language=language,
-                task=task,
-                beam_size=beam_size,
-                vad_filter=vad_filter,
-            )
+            if self.device == "cuda":
+                pipeline = self._get_batched_pipeline(model)
+                segments, info = pipeline.transcribe(
+                    str(wav_path),
+                    language=language,
+                    task=task,
+                    beam_size=beam_size,
+                    vad_filter=vad_filter,
+                    initial_prompt=prompt,
+                    batch_size=config.DEFAULT_BATCH_SIZE,
+                )
+            else:
+                segments, info = model.transcribe(
+                    str(wav_path),
+                    language=language,
+                    task=task,
+                    beam_size=beam_size,
+                    vad_filter=vad_filter,
+                    initial_prompt=prompt,
+                )
         except Exception as exc:
             raise TranscriptionError(f"Fallo decodificando {wav_path.name}: {exc}") from exc
 

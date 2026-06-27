@@ -109,6 +109,7 @@ async def start_transcription(
     language: str = Form(default="auto"),
     task: str = Form(default="transcribe"),
     vad_filter: bool = Form(default=True),
+    initial_prompt: str = Form(default=""),
     model_size: str = Form(...),
     compute_type: str = Form(...),
     device: str = Form(...),
@@ -131,6 +132,7 @@ async def start_transcription(
         language=None if language == "auto" else language,
         task=task,
         vad_filter=vad_filter,
+        initial_prompt=initial_prompt.strip() or None,
     )
 
     job_id = uuid.uuid4().hex

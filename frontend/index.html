@@ -72,6 +72,11 @@
               <input id="opt-vad" type="checkbox" checked />
               Saltar silencios automáticamente
             </label>
+            <label class="span-2">Nombres o términos para mejorar la precisión <span class="muted">(opcional)</span>
+              <input id="opt-vocab" class="text-input" type="text"
+                     placeholder="Ej.: Acme, Kubernetes, María Pérez, OKR" autocomplete="off" />
+              <span class="muted small">Si tu grabación usa nombres propios, marcas o jerga, escríbelos aquí: ayudan a Whisper a escribirlos bien.</span>
+            </label>
           </div>
           <details class="details details--nested">
             <summary>🛠️ Modo avanzado (forzar modelo)</summary>

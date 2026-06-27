@@ -10,7 +10,7 @@ const LABELS = {
   language: { auto: "Auto-detectar", es: "Español", en: "Inglés", pt: "Portugués", fr: "Francés", it: "Italiano", de: "Alemán" },
   task: { transcribe: "Transcribir (mismo idioma)", translate: "Traducir a inglés" },
   device: { cuda: "GPU (NVIDIA)", cpu: "CPU" },
-  model: { tiny: "Tiny", base: "Base", small: "Small", medium: "Medium", "large-v3": "Large v3" },
+  model: { tiny: "Tiny", base: "Base", small: "Small", medium: "Medium", "large-v3-turbo": "Large v3 Turbo (rápido)", "large-v3": "Large v3 (máxima calidad)" },
 };
 
 // App state (kept in memory only)
@@ -266,6 +266,7 @@ function startTranscription() {
   fd.append("language", $("opt-language").value);
   fd.append("task", $("opt-task").value);
   fd.append("vad_filter", $("opt-vad").checked ? "true" : "false");
+  fd.append("initial_prompt", $("opt-vocab").value.trim());
   fd.append("model_size", $("opt-model").value);
   fd.append("compute_type", $("opt-compute").value);
   fd.append("device", $("opt-device").value);

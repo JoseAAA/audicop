@@ -36,14 +36,13 @@ def _hw(
 @pytest.mark.parametrize(
     ("vram_free", "expected_size", "expected_compute"),
     [
-        (24.0, "large-v3", "float16"),
-        (8.0, "large-v3", "float16"),
-        (7.9, "large-v3", "int8_float16"),
-        (4.0, "large-v3", "int8_float16"),
-        (3.9, "medium", "int8_float16"),
-        (2.5, "medium", "int8_float16"),
+        (24.0, "large-v3-turbo", "float16"),
+        (6.0, "large-v3-turbo", "float16"),
+        (5.9, "large-v3-turbo", "int8_float16"),
+        (2.5, "large-v3-turbo", "int8_float16"),
         (2.4, "small", "int8_float16"),
-        (1.0, "small", "int8_float16"),
+        (1.5, "small", "int8_float16"),
+        (1.4, "base", "int8_float16"),
     ],
 )
 def test_gpu_tiers_use_free_vram(
@@ -89,16 +88,16 @@ def test_total_ram_irrelevant_when_available_is_low() -> None:
 
 
 def test_total_vram_irrelevant_when_free_is_low() -> None:
-    """A 24 GB GPU with only 1 GB free recommends `small`, not `large-v3`."""
+    """A 24 GB GPU with only 1 GB free recommends `base`, not the turbo model."""
     choice = recommend(_hw(has_cuda=True, gpu_vram_total_gb=24.0, gpu_vram_free_gb=1.0))
-    assert choice.model_size == "small"
+    assert choice.model_size == "base"
 
 
 def test_gpu_falls_back_to_total_when_free_unknown() -> None:
     """If `gpu_vram_free_gb` is None we use total VRAM as best-effort signal."""
     choice = recommend(_hw(has_cuda=True, gpu_vram_total_gb=12.0, gpu_vram_free_gb=None))
     assert choice.device == "cuda"
-    assert choice.model_size == "large-v3"
+    assert choice.model_size == "large-v3-turbo"
 
 
 def test_cuda_flag_set_but_no_vram_falls_back_to_cpu() -> None:

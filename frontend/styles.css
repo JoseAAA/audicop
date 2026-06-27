@@ -153,6 +153,7 @@ a { color: var(--primary); }
 .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
 .options-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-2); }
 .options-grid .checkbox { flex-direction: row; align-items: center; gap: 8px; }
+.options-grid .span-2 { grid-column: 1 / -1; }
 @media (max-width: 560px) { .options-grid { grid-template-columns: 1fr; } }
 
 /* Buttons */

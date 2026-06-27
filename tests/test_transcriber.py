@@ -308,3 +308,105 @@ def test_download_model_no_symlinks_wraps_errors(tmp_path: Path) -> None:
         pytest.raises(TranscriptionError, match="No se pudo descargar"),
     ):
         transcriber._download_model_no_symlinks("tiny")
+
+
+# ---------------------------------------------------------------------------
+# Repo-id resolution (turbo lives outside the Systran org)
+# ---------------------------------------------------------------------------
+
+
+def test_repo_id_for_resolves_turbo_and_systran() -> None:
+    """`large-v3-turbo` resolves to its mobiuslabsgmbh repo; classic sizes to Systran."""
+    assert (
+        transcriber._repo_id_for("large-v3-turbo") == "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
+    )
+    assert transcriber._repo_id_for("small") == "Systran/faster-whisper-small"
+
+
+def test_repo_id_for_falls_back_to_template_when_mapping_missing() -> None:
+    """If faster-whisper's mapping lacks the size, we use the Systran template."""
+    assert transcriber._repo_id_for("not-a-real-size") == "Systran/faster-whisper-not-a-real-size"
+
+
+def test_download_model_no_symlinks_turbo_uses_correct_repo(tmp_path: Path) -> None:
+    """Turbo downloads from mobiuslabsgmbh into a matching local dir name."""
+    fake_snapshot = MagicMock()
+    fake_module = MagicMock()
+    fake_module.snapshot_download = fake_snapshot
+
+    with (
+        patch.object(transcriber, "_audicop_cache_root", return_value=tmp_path / "audicop"),
+        patch.dict("sys.modules", {"huggingface_hub": fake_module}),
+    ):
+        result = transcriber._download_model_no_symlinks("large-v3-turbo")
+
+    kwargs = fake_snapshot.call_args.kwargs
+    assert kwargs["repo_id"] == "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
+    assert result.name == "mobiuslabsgmbh--faster-whisper-large-v3-turbo"
+
+
+# ---------------------------------------------------------------------------
+# Batched pipeline (GPU) + initial_prompt
+# ---------------------------------------------------------------------------
+
+
+def test_transcribe_passes_initial_prompt_on_cpu(
+    tmp_path: Path,
+    fake_segments: list[SimpleNamespace],
+    fake_info: SimpleNamespace,
+) -> None:
+    """The vocabulary hint reaches the underlying model on the CPU path."""
+    fake_model = MagicMock()
+    fake_model.transcribe.return_value = (iter(fake_segments), fake_info)
+
+    with patch.object(transcriber, "WhisperModel", return_value=fake_model):
+        t = Transcriber(model_size="tiny", compute_type="int8", device="cpu")
+        t.transcribe(_wav_path(tmp_path), initial_prompt="Kubernetes, Acme")
+
+    assert fake_model.transcribe.call_args.kwargs["initial_prompt"] == "Kubernetes, Acme"
+
+
+def test_transcribe_cuda_uses_batched_pipeline(
+    tmp_path: Path,
+    fake_segments: list[SimpleNamespace],
+    fake_info: SimpleNamespace,
+) -> None:
+    """On CUDA we decode via BatchedInferencePipeline, not model.transcribe."""
+    fake_model = MagicMock()
+    fake_pipeline = MagicMock()
+    fake_pipeline.transcribe.return_value = (iter(fake_segments), fake_info)
+
+    with (
+        patch.object(transcriber, "WhisperModel", return_value=fake_model),
+        patch.object(transcriber, "BatchedInferencePipeline", return_value=fake_pipeline) as bip,
+    ):
+        t = Transcriber(model_size="large-v3-turbo", compute_type="float16", device="cuda")
+        segs, _ = t.transcribe(_wav_path(tmp_path), language="es", initial_prompt="Acme")
+        list(segs)  # drive the generator
+
+    bip.assert_called_once_with(model=fake_model)
+    fake_model.transcribe.assert_not_called()
+    kwargs = fake_pipeline.transcribe.call_args.kwargs
+    assert kwargs["batch_size"] == transcriber.config.DEFAULT_BATCH_SIZE
+    assert kwargs["initial_prompt"] == "Acme"
+    assert kwargs["language"] == "es"
+
+
+def test_batched_pipeline_is_cached(
+    tmp_path: Path,
+    fake_segments: list[SimpleNamespace],
+    fake_info: SimpleNamespace,
+) -> None:
+    """Two decodes on the same transcriber reuse one BatchedInferencePipeline."""
+    fake_pipeline = MagicMock()
+    fake_pipeline.transcribe.side_effect = lambda *a, **k: (iter(fake_segments), fake_info)
+
+    with (
+        patch.object(transcriber, "WhisperModel", return_value=MagicMock()),
+        patch.object(transcriber, "BatchedInferencePipeline", return_value=fake_pipeline) as bip,
+    ):
+        t = Transcriber(model_size="large-v3-turbo", compute_type="float16", device="cuda")
+        list(t.transcribe(_wav_path(tmp_path))[0])
+        list(t.transcribe(_wav_path(tmp_path))[0])
+
+    bip.assert_called_once()

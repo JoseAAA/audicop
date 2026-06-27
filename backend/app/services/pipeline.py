@@ -50,6 +50,8 @@ class TranscriptionSettings:
         language: Two-letter code, or ``None`` to autodetect.
         task: ``"transcribe"`` or ``"translate"``.
         vad_filter: Whether to apply the Silero VAD filter.
+        initial_prompt: Optional vocabulary hint (names, jargon) to prime
+            the decoder, or ``None``.
     """
 
     model_size: str
@@ -58,6 +60,7 @@ class TranscriptionSettings:
     language: str | None
     task: str
     vad_filter: bool
+    initial_prompt: str | None = None
 
 
 _TRANSCRIBER_CACHE: dict[tuple[str, str, str], Transcriber] = {}
@@ -114,6 +117,7 @@ def iter_transcription(
             language=settings.language,
             task=settings.task,
             vad_filter=settings.vad_filter,
+            initial_prompt=settings.initial_prompt,
         )
         effective_duration = duration or info.duration or 0.0
         start = time.monotonic()

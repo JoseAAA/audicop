@@ -516,6 +516,7 @@ async function sendChat(prompt) {
 const rec = { active: false, mode: null, timer: null, t0: 0 };
 let captureAvailable = true;
 let meetingPoll = null;
+let lastMeetingApp = null; // for one-shot "meeting detected" notifications
 
 function fmtClock(sec) {
   sec = Math.max(0, Math.floor(sec));
@@ -558,7 +559,6 @@ async function startRecording(mode) {
     if (!r.ok) { toast(safeDetail(await r.text()) || "No se pudo iniciar la grabación."); return; }
     rec.active = true;
     rec.mode = mode;
-    stopMeetingPoll();
     setRecUI(mode, true);
     startTimer(mode);
   } catch (e) {
@@ -612,6 +612,10 @@ async function pollMeeting() {
       el.textContent = "No detecté una reunión activa. Puedes grabar igualmente.";
     }
     updateMeetingStart();
+    // Notion-style alert: fire once when a meeting first appears.
+    const app = captureAvailable && d.detected ? d.app : null;
+    if (app && app !== lastMeetingApp) maybeNotifyMeeting(app);
+    lastMeetingApp = app;
   } catch (e) {
     /* ignore polling errors */
   }
@@ -620,7 +624,27 @@ function updateMeetingStart() {
   $("meeting-start").disabled = !captureAvailable || !$("rec-consent").checked || rec.active;
 }
 function startMeetingPoll() { if (!meetingPoll) meetingPoll = setInterval(pollMeeting, 4000); }
-function stopMeetingPoll() { if (meetingPoll) { clearInterval(meetingPoll); meetingPoll = null; } }
+
+// Ask once (on a user gesture) so we can alert about a meeting in the background.
+function requestMeetingNotifications() {
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+function maybeNotifyMeeting(app) {
+  if (rec.active) return; // already recording — no need to nag
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const n = new Notification("🎙️ Audicop — reunión detectada", {
+    body: `Detecté ${app}. Abre Audicop para grabarla.`,
+    tag: "audicop-meeting",
+  });
+  n.onclick = () => {
+    window.focus();
+    const tab = document.querySelector('[data-tab="rec-meeting"]');
+    if (tab) tab.click();
+    n.close();
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Wire up
@@ -645,14 +669,15 @@ function init() {
   $("meeting-start").addEventListener("click", () => startRecording("meeting"));
   $("meeting-stop").addEventListener("click", () => stopRecording("meeting"));
   $("rec-consent").addEventListener("change", updateMeetingStart);
-  // Poll for an active meeting only while that tab is open.
+  // Ask for notification permission when the user opens the meeting tab.
   document.querySelectorAll("[data-tab]").forEach((tab) =>
     tab.addEventListener("click", () => {
-      if (tab.getAttribute("data-tab") === "rec-meeting") { pollMeeting(); startMeetingPoll(); }
-      else stopMeetingPoll();
+      if (tab.getAttribute("data-tab") === "rec-meeting") { requestMeetingNotifications(); pollMeeting(); }
     })
   );
-  pollMeeting(); // initial capture-availability check (also gates the voice button)
+  // Poll continuously so we can alert about a meeting even from another tab.
+  pollMeeting();
+  startMeetingPoll();
 
   $("btn-transcribe").addEventListener("click", startTranscription);
 

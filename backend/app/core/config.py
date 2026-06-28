@@ -306,19 +306,28 @@ soundcard's "data discontinuity" warnings without buffering large chunks
 in memory.
 """
 
-# Process-name substrings (lowercase) → friendly meeting-app name. Used by
-# `adapters.meeting.detect_active_meeting` to offer one-click recording when
-# a known conferencing app is running. Browser-based meetings (e.g. Google
-# Meet in a tab) are intentionally absent: they can't be told apart from a
-# normal browser by process name, so for those the user records manually.
-MEETING_APP_PROCESSES: Final[dict[str, str]] = {
-    "teams": "Microsoft Teams",
-    "ms-teams": "Microsoft Teams",
-    "zoom": "Zoom",
-    "webex": "Webex",
-    "skype": "Skype",
-    "slack": "Slack",
-    "discord": "Discord",
+# App identifier (a substring of the exe / package name reported by Windows'
+# microphone consent store) → friendly meeting name. `adapters.meeting`
+# matches these ONLY against apps that are *actively using the microphone*,
+# so background processes never trigger a false positive. This is what
+# catches a browser meeting (Google Meet runs in chrome.exe) which a
+# process-name scan never could. ".exe" suffixes keep matches precise — e.g.
+# "zoom.exe" won't match PowerToys "ZoomIt.exe", and "teams.exe" won't match
+# Steam's "steamservice.exe".
+MEETING_APP_HINTS: Final[dict[str, str]] = {
+    "chrome.exe": "una reunión en el navegador",
+    "msedge.exe": "una reunión en el navegador",
+    "firefox.exe": "una reunión en el navegador",
+    "brave.exe": "una reunión en el navegador",
+    "opera.exe": "una reunión en el navegador",
+    "ms-teams.exe": "Microsoft Teams",
+    "teams.exe": "Microsoft Teams",
+    "msteams": "Microsoft Teams",  # new Teams is a packaged app (family name)
+    "zoom.exe": "Zoom",
+    "webex.exe": "Webex",
+    "slack.exe": "Slack",
+    "discord.exe": "Discord",
+    "skype.exe": "Skype",
 }
 
 # ---------------------------------------------------------------------------

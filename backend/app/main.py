@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
-from app.api import chat, hardware, transcribe
+from app.api import chat, hardware, record, transcribe
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,6 +29,7 @@ app = FastAPI(title="Audicop", version=__version__)
 app.include_router(hardware.router)
 app.include_router(transcribe.router)
 app.include_router(chat.router)
+app.include_router(record.router)
 
 
 @app.get("/api/health")

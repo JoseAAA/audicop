@@ -30,6 +30,11 @@ dependencies = [
     "faster-whisper>=1.0",
     "imageio-ffmpeg>=0.5",
     "psutil>=5.9",
+    # Audio capture for the "record" modes (own voice + meeting). Cross-platform
+    # (Windows/WASAPI incl. speaker loopback, macOS/coreaudio, Linux/pulseaudio),
+    # pip-only via CFFI — no system deps, no PyTorch. BSD-3 licensed. Imported
+    # lazily in adapters/capture.py so the app still runs if audio is unavailable.
+    "soundcard>=0.4.3",
     # AI chat/analysis (bring-your-own-key). Kept in the base set on purpose:
     # `uv sync` prunes anything not installed, so an optional extra would be
     # uninstalled on every normal launch and the AI panel would silently
@@ -126,6 +131,8 @@ module = [
     "app.adapters.audio",
     "app.adapters.transcriber",
     "app.adapters.llm",
+    "app.adapters.capture",
+    "app.adapters.meeting",
     "app.services.recommender",
     "app.services.formatting",
     "app.services.pipeline",
@@ -144,6 +151,7 @@ module = [
     "torch.*",
     "openai.*",
     "google.*",
+    "soundcard.*",
 ]
 ignore_missing_imports = true
 

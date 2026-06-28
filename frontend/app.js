@@ -510,6 +510,119 @@ async function sendChat(prompt) {
 }
 
 // ---------------------------------------------------------------------------
+// Recording (voice + meeting). Captures locally on the server, then feeds the
+// resulting WAV into the same transcription flow as an uploaded file.
+// ---------------------------------------------------------------------------
+const rec = { active: false, mode: null, timer: null, t0: 0 };
+let captureAvailable = true;
+let meetingPoll = null;
+
+function fmtClock(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(Math.floor(sec / 60))}:${pad(sec % 60)}`;
+}
+
+function recEls(mode) {
+  const p = mode === "voice" ? "voice" : "meeting";
+  return { start: $(`${p}-start`), live: $(`${p}-live`), time: $(`${p}-time`), stop: $(`${p}-stop`) };
+}
+
+function setRecUI(mode, recording) {
+  const el = recEls(mode);
+  el.start.hidden = recording;
+  el.live.hidden = !recording;
+}
+
+function startTimer(mode) {
+  rec.t0 = Date.now();
+  const el = recEls(mode);
+  el.time.textContent = "00:00";
+  rec.timer = setInterval(() => {
+    el.time.textContent = fmtClock((Date.now() - rec.t0) / 1000);
+  }, 500);
+}
+function stopTimer() {
+  if (rec.timer) { clearInterval(rec.timer); rec.timer = null; }
+}
+
+async function startRecording(mode) {
+  if (rec.active) return;
+  const includeMic = mode === "meeting" ? $("rec-mic").checked : true;
+  try {
+    const r = await fetch("/api/record/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, include_mic: includeMic }),
+    });
+    if (!r.ok) { toast(safeDetail(await r.text()) || "No se pudo iniciar la grabación."); return; }
+    rec.active = true;
+    rec.mode = mode;
+    stopMeetingPoll();
+    setRecUI(mode, true);
+    startTimer(mode);
+  } catch (e) {
+    toast("No se pudo contactar al servidor para grabar.");
+  }
+}
+
+async function stopRecording(mode) {
+  if (!rec.active) return;
+  stopTimer();
+  let data;
+  try {
+    const r = await fetch("/api/record/stop", { method: "POST" });
+    if (!r.ok) {
+      toast(safeDetail(await r.text()) || "No se pudo detener la grabación.");
+      rec.active = false; setRecUI(mode, false);
+      return;
+    }
+    data = await r.json();
+  } catch (e) {
+    toast("No se pudo contactar al servidor.");
+    rec.active = false; setRecUI(mode, false);
+    return;
+  }
+  rec.active = false;
+  setRecUI(mode, false);
+
+  // Hand the recorded WAV to the existing transcription flow and auto-start.
+  const label = mode === "meeting" ? "reunión" : "nota de voz";
+  state.chosen = { kind: "path", path: data.path };
+  state.baseFilename = mode === "meeting" ? "reunion" : "grabacion";
+  showChosen(`🎙️ Grabación lista (${label}) · ${fmtDuration(data.duration || 0)}`);
+  startTranscription();
+}
+
+async function pollMeeting() {
+  try {
+    const r = await fetch("/api/record/meeting");
+    const d = await r.json();
+    captureAvailable = !!d.capture_available;
+    recEls("voice").start.disabled = !captureAvailable;
+    const el = $("meeting-detect");
+    if (!captureAvailable) {
+      el.className = "meeting-detect";
+      el.textContent = "⚠️ Este equipo no tiene captura de audio disponible.";
+    } else if (d.detected) {
+      el.className = "meeting-detect is-on";
+      el.innerHTML = `🟢 Detecté <strong>${d.app}</strong> — listo para grabar.`;
+    } else {
+      el.className = "meeting-detect";
+      el.textContent = "No detecté una reunión activa. Puedes grabar igualmente.";
+    }
+    updateMeetingStart();
+  } catch (e) {
+    /* ignore polling errors */
+  }
+}
+function updateMeetingStart() {
+  $("meeting-start").disabled = !captureAvailable || !$("rec-consent").checked || rec.active;
+}
+function startMeetingPoll() { if (!meetingPoll) meetingPoll = setInterval(pollMeeting, 4000); }
+function stopMeetingPoll() { if (meetingPoll) { clearInterval(meetingPoll); meetingPoll = null; } }
+
+// ---------------------------------------------------------------------------
 // Wire up
 // ---------------------------------------------------------------------------
 function init() {
@@ -525,6 +638,21 @@ function init() {
   dz.addEventListener("drop", (e) => { if (e.dataTransfer.files[0]) chooseFile(e.dataTransfer.files[0]); });
 
   $("path-input").addEventListener("change", (e) => { if (e.target.value.trim()) choosePath(e.target.value.trim()); });
+
+  // recording: voice + meeting
+  $("voice-start").addEventListener("click", () => startRecording("voice"));
+  $("voice-stop").addEventListener("click", () => stopRecording("voice"));
+  $("meeting-start").addEventListener("click", () => startRecording("meeting"));
+  $("meeting-stop").addEventListener("click", () => stopRecording("meeting"));
+  $("rec-consent").addEventListener("change", updateMeetingStart);
+  // Poll for an active meeting only while that tab is open.
+  document.querySelectorAll("[data-tab]").forEach((tab) =>
+    tab.addEventListener("click", () => {
+      if (tab.getAttribute("data-tab") === "rec-meeting") { pollMeeting(); startMeetingPoll(); }
+      else stopMeetingPoll();
+    })
+  );
+  pollMeeting(); // initial capture-availability check (also gates the voice button)
 
   $("btn-transcribe").addEventListener("click", startTranscription);
 

@@ -61,8 +61,9 @@ segundos acentos decorativos. Rebrandear = cambiar solo estas variables.
 │ 🎙️ Audicop  +  tagline                          │
 │ ✅ banner de estado (1 línea) + detalles plegados│
 │                                                 │
-│ ┌─ Paso 1 · Sube tu archivo ─────────────────┐ │
-│ │  [Subir | Archivo local]  dropzone          │ │
+│ ┌─ Paso 1 · Tu audio ────────────────────────┐ │
+│ │  [Subir | Grabar mi voz | Grabar reunión]   │ │
+│ │  dropzone · o grabar (consentimiento+clic)  │ │
 │ └─────────────────────────────────────────────┘ │
 │ ┌─ Paso 2 · Transcribe (se habilita) ────────┐ │
 │ │  ⚙️ opciones (plegado)   [ ▶ Transcribir ]   │ │

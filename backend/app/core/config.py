@@ -292,6 +292,36 @@ APP_TAGLINE: Final[str] = "Suelta cualquier audio o vídeo. Recibe el texto. Sin
 TEMP_PREFIX: Final[str] = "audicop_"
 
 # ---------------------------------------------------------------------------
+# Recording (own voice + meeting capture modes)
+# ---------------------------------------------------------------------------
+
+RECORDINGS_DIR_NAME: Final[str] = "audicop_recordings"
+"""Subdirectory under the OS temp dir where in-progress recordings are written."""
+
+RECORD_BLOCK_FRAMES: Final[int] = 8_000
+"""Frames read per capture loop iteration (0.5 s at 16 kHz).
+
+Reading in modest blocks keeps the WAV writer fed steadily, which avoids
+soundcard's "data discontinuity" warnings without buffering large chunks
+in memory.
+"""
+
+# Process-name substrings (lowercase) → friendly meeting-app name. Used by
+# `adapters.meeting.detect_active_meeting` to offer one-click recording when
+# a known conferencing app is running. Browser-based meetings (e.g. Google
+# Meet in a tab) are intentionally absent: they can't be told apart from a
+# normal browser by process name, so for those the user records manually.
+MEETING_APP_PROCESSES: Final[dict[str, str]] = {
+    "teams": "Microsoft Teams",
+    "ms-teams": "Microsoft Teams",
+    "zoom": "Zoom",
+    "webex": "Webex",
+    "skype": "Skype",
+    "slack": "Slack",
+    "discord": "Discord",
+}
+
+# ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
 

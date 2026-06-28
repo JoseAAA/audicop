@@ -78,6 +78,10 @@ Todo queda dentro de la carpeta del proyecto. **No toca tu Python del sistema.**
 
 ## ✨ Funciones
 
+- 🎚️ **Tres formas de obtener audio** — (1) **subir** un archivo (o pegar la ruta
+  de un vídeo grande), (2) **grabar tu voz** (nota/dictado) o (3) **grabar una
+  reunión** (lo que dicen los demás + tu micrófono). Detecta Teams/Zoom y ofrece
+  grabar con un clic. Todo se transcribe igual, 100% local.
 - 🤖 **Autodetección de hardware** — elige modelo y `compute_type` por ti, según
   la memoria **libre** (no la total), para no ahogar tu equipo.
 - ⚡ **Whisper turbo + batched** — usa `large-v3-turbo` (calidad casi `large-v3`,
@@ -218,6 +222,7 @@ Detalle completo en [AGENTS.md](AGENTS.md) §3.
 | Frontend        | HTML/CSS/JS vanilla, tema "Slate" — ver [DESIGN.md](DESIGN.md) (sin Node) |
 | Motor ASR       | faster-whisper (CTranslate2) · modelo Whisper de OpenAI |
 | Audio           | imageio-ffmpeg (binario empaquetado)                    |
+| Grabación       | soundcard (mic + loopback del sistema, BSD-3, sin torch)|
 | Hardware        | psutil + nvidia-smi                                     |
 | GPU (opcional)  | nvidia-cublas-cu12 + nvidia-cudnn-cu12                  |
 | IA              | openai + google-genai (bring-your-own-key)              |
@@ -235,7 +240,9 @@ Créditos: [faster-whisper](https://github.com/SYSTRAN/faster-whisper),
 - [x] Fallback de descarga sin symlinks (Windows restringido).
 - [x] Timestamps estilo YouTube + export SRT/VTT.
 - [x] Chat / análisis con IA (OpenAI/Gemini, BYO key).
-- [ ] Diarización (separar hablantes).
+- [x] `large-v3-turbo` + batched (GPU) + pista de vocabulario.
+- [x] Grabación local: tu voz y reuniones (mic + audio del sistema).
+- [ ] Diarización (separar hablantes): "Tú vs los demás" + sherpa-onnx.
 - [ ] Proceso por lotes (varias carpetas).
 - [ ] Más proveedores IA (Anthropic, modelos locales vía Ollama).
 

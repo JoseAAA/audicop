@@ -24,15 +24,17 @@
         <div id="hw-details-body" class="details__body"></div>
       </details>
 
-      <!-- Step 1: Upload -->
+      <!-- Step 1: Source (upload / record voice / record meeting) -->
       <section class="step" id="step-upload">
-        <div class="step__head"><span class="step__num">1</span><h2>Sube tu archivo</h2></div>
+        <div class="step__head"><span class="step__num">1</span><h2>Tu audio</h2></div>
 
         <div class="tabs">
-          <button class="tab is-active" data-tab="upload">📤 Subir archivo</button>
-          <button class="tab" data-tab="local">📁 Archivo local (vídeos grandes)</button>
+          <button class="tab is-active" data-tab="upload">📤 Subir</button>
+          <button class="tab" data-tab="rec-voice">🎙️ Grabar mi voz</button>
+          <button class="tab" data-tab="rec-meeting">🔴 Grabar reunión</button>
         </div>
 
+        <!-- Subir (archivo + ruta local plegada) -->
         <div class="tab-panel is-active" data-panel="upload">
           <label id="dropzone" class="dropzone" for="file-input">
             <input id="file-input" type="file" hidden
@@ -41,15 +43,49 @@
             <span class="dropzone__title">Arrastra aquí o haz clic para elegir</span>
             <span class="dropzone__hint" id="upload-hint">audio o vídeo · hasta 2 GB</span>
           </label>
+          <details class="details">
+            <summary>📁 ¿Vídeo grande (&gt; 2 GB)? Pega la ruta del archivo</summary>
+            <div class="details__body">
+              <p class="muted small">Audicop lee del disco — sin subida ni límite. Funciona porque corre en tu equipo.</p>
+              <input id="path-input" class="text-input" type="text"
+                     placeholder="C:\Users\tu_usuario\Videos\reunion.mp4" />
+            </div>
+          </details>
         </div>
 
-        <div class="tab-panel" data-panel="local">
-          <p class="muted">
-            Pega la <strong>ruta absoluta</strong>. Audicop lee del disco — sin subida,
-            sin límite de tamaño. Funciona porque la app corre en tu equipo.
-          </p>
-          <input id="path-input" class="text-input" type="text"
-                 placeholder="C:\Users\tu_usuario\Videos\reunion.mp4" />
+        <!-- Grabar mi voz (solo micrófono) -->
+        <div class="tab-panel" data-panel="rec-voice">
+          <p class="muted">Graba una nota de voz o dictado con tu micrófono. Se guarda y se transcribe en tu equipo.</p>
+          <div class="rec">
+            <button id="voice-start" class="btn btn--primary">🎙️ Empezar a grabar</button>
+            <div id="voice-live" class="rec__live" hidden>
+              <span class="rec__dot"></span>
+              <span>Grabando… <strong id="voice-time">00:00</strong></span>
+              <button id="voice-stop" class="btn btn--ghost">⏹ Detener y transcribir</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Grabar reunión (loopback + micrófono) -->
+        <div class="tab-panel" data-panel="rec-meeting">
+          <div id="meeting-detect" class="meeting-detect">Buscando una reunión activa…</div>
+          <label class="checkbox">
+            <input id="rec-consent" type="checkbox" />
+            Confirmo que tengo el <strong>consentimiento</strong> de los participantes para grabar
+          </label>
+          <label class="checkbox">
+            <input id="rec-mic" type="checkbox" checked />
+            Incluir mi micrófono (lo que tú dices)
+          </label>
+          <div class="rec">
+            <button id="meeting-start" class="btn btn--primary" disabled>🔴 Grabar reunión</button>
+            <div id="meeting-live" class="rec__live" hidden>
+              <span class="rec__dot"></span>
+              <span>Grabando… <strong id="meeting-time">00:00</strong></span>
+              <button id="meeting-stop" class="btn btn--ghost">⏹ Detener y transcribir</button>
+            </div>
+          </div>
+          <p class="muted small">Se graba lo que dicen los demás + tu micrófono y se transcribe 100% en tu equipo. Nada se sube.</p>
         </div>
 
         <div id="file-chosen" class="chosen" hidden></div>

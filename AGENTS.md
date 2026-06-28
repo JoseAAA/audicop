@@ -47,6 +47,8 @@ chat IA) es valor añadido y no debe estorbar ese flujo.
 | Acción                     | ¿Sale a la red?                                    |
 |----------------------------|----------------------------------------------------|
 | Detección de hardware      | No (psutil, nvidia-smi, platform — solo lectura)   |
+| Detección de reunión       | No (psutil lee nombres de procesos; ni red ni audio)|
+| Grabación (mic / loopback) | No (soundcard local; el WAV se queda en el equipo) |
 | Conversión a WAV (ffmpeg)  | No (binario local empaquetado)                     |
 | Transcripción (Whisper)    | No (modelo local; solo se descarga la 1ª vez)      |
 | **Chat / análisis IA**     | **Sí** — el texto de la transcripción va al        |
@@ -66,7 +68,9 @@ backend/app/
 ├── adapters/            Drivers finos sobre integraciones externas:
 │   ├── hardware.py        detect_hardware() → HardwareInfo (psutil + nvidia-smi).
 │   ├── audio.py           to_wav_16k() vía ffmpeg empaquetado + limpieza.
-│   ├── transcriber.py     Wrapper de WhisperModel. DLL CUDA Windows. Fallback sin symlinks.
+│   ├── transcriber.py     Wrapper de WhisperModel (turbo + batched GPU). DLL CUDA. Fallback sin symlinks.
+│   ├── capture.py         Grabación local mic + loopback (soundcard) → WAV 16k. Import perezoso.
+│   ├── meeting.py         detect_active_meeting() vía psutil (Teams/Zoom/…).
 │   └── llm.py             Cliente agnóstico (OpenAI/Gemini), streaming, BYO key.
 ├── services/            Lógica de negocio pura (testeable):
 │   ├── recommender.py     recommend(hw) → ModelChoice (memoria LIBRE, no total).
@@ -75,6 +79,7 @@ backend/app/
 ├── api/                 Rutas FastAPI (capa I/O):
 │   ├── hardware.py        GET /api/hardware
 │   ├── transcribe.py      POST /api/transcribe + GET .../events (SSE)
+│   ├── record.py          GET /api/record/meeting + POST .../start + .../stop
 │   └── chat.py            POST /api/chat (SSE)
 ├── prompts/             Paquete: __init__.py carga los .md editables (system, context, actions/*).
 └── main.py              FastAPI: monta routers + sirve frontend/.
@@ -131,7 +136,9 @@ uv run pytest --cov            # ≥ 80% en módulos no-API
 ## §7. Dependencias
 
 Stack base: `fastapi`, `uvicorn[standard]`, `python-multipart`,
-`faster-whisper`, `imageio-ffmpeg`, `psutil`, `openai`, `google-genai`.
+`faster-whisper`, `imageio-ffmpeg`, `psutil`, `soundcard`, `openai`,
+`google-genai`. (`soundcard`, BSD-3, da la captura mic + loopback de los
+modos de grabación; pip-only, sin deps de sistema, sin torch.)
 (Las libs de IA van en base a propósito: `uv sync` poda lo que no esté en los
 extras activos, así que un extra opcional se desinstalaría en cada arranque y el
 chat se rompería. Son ligeras, no como torch.)
@@ -161,8 +168,13 @@ Frontend: **cero dependencias** (vanilla, sin Node/CDN).
 
 - ❌ Telemetría, analytics o "phone home" de cualquier tipo.
 - ❌ Persistir API keys a disco (salvo opt-in explícito futuro, hoy no existe).
-- ❌ Subir el audio del usuario a ninguna nube.
-- ❌ Acceder a webcam, micrófono o portapapeles.
+- ❌ Subir el audio del usuario a ninguna nube (incluido el audio grabado).
+- ❌ Acceder a webcam o portapapeles.
+- ⚠️ Micrófono y audio del sistema (loopback): **solo** en los modos "Grabar
+  mi voz" y "Grabar reunión", **siempre** por acción explícita del usuario
+  (botón) y, para reuniones, con su consentimiento marcado. El audio grabado
+  se procesa 100% local y nunca sale del equipo. Nada de captura silenciosa
+  ni automática.
 - ❌ Romper el flujo local: la app debe transcribir aunque no haya internet
   (con el modelo ya cacheado) ni API keys.
 - ❌ Mostrar jerga técnica cruda al usuario (ver `DESIGN.md`).
@@ -175,7 +187,9 @@ Frontend: **cero dependencias** (vanilla, sin Node/CDN).
 - [x] Fallback de descarga sin symlinks (Windows restringido).
 - [x] Timestamps estilo YouTube + export SRT/VTT.
 - [x] Chat / análisis IA con BYO key (OpenAI/Gemini).
-- [ ] Diarización (separar hablantes).
+- [x] Modelo `large-v3-turbo` + batched pipeline (GPU) + pista de vocabulario.
+- [x] Modos de grabación local: "mi voz" (mic) y "reunión" (mic + loopback).
+- [ ] Diarización (separar hablantes): "Tú vs los demás" por pistas + sherpa-onnx.
 - [ ] Proceso por lotes (varios archivos / carpetas).
 - [ ] Más proveedores IA (Anthropic, modelos locales vía Ollama).
 

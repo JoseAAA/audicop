@@ -50,18 +50,22 @@ cd audicop
 
 ```bash
 # 2. Arrancar (instala dependencias la 1ª vez y abre el navegador solo)
-.\scripts\start.ps1        # Windows (PowerShell)
+scripts\start.cmd          # Windows  (doble clic o desde la terminal)
 ./scripts/start.sh         # Linux / macOS
 ```
 
 La 1ª vez tarda 5–10 min (instala todo y descarga el modelo); las siguientes,
 segundos. Se abre solo en **http://localhost:8000**.
 
-> **Windows:** si PowerShell bloquea el script ("la ejecución de scripts está
-> deshabilitada en este sistema"), lánzalo así una vez:
-> ```powershell
-> powershell -ExecutionPolicy Bypass -File scripts\start.ps1
-> ```
+> **Windows — usa `scripts\start.cmd`** (doble clic). Funciona aunque tu equipo
+> bloquee scripts de PowerShell no firmados (políticas corporativas
+> *AllSigned*/*RemoteSigned*, o archivos marcados como "descargados" por estar
+> en OneDrive): el `.cmd` lanza el instalador de una forma que la política de
+> ejecución no restringe. Si prefieres PowerShell directo y no está bloqueado,
+> `.\scripts\start.ps1` sigue funcionando.
+>
+> 💡 Si puedes, **clona el proyecto fuera de OneDrive** (p. ej. `C:\dev\audicop`):
+> evita que OneDrive sincronice el entorno virtual y la marca de "descargado".
 
 <details>
 <summary>¿Qué hace el script por debajo?</summary>
@@ -207,7 +211,8 @@ Detalle completo en [AGENTS.md](AGENTS.md) §3.
 |----------|----------|
 | El modelo tarda en la 1ª descarga | Normal (`large-v3` ~3 GB). Luego sale de caché. |
 | `WinError 1314` / "privilegio requerido" | Audicop ya lo maneja: descarga sin symlinks a `~/.cache/audicop/models`. Si persiste, borra `~/.cache/huggingface` y reabre. |
-| No detecta mi GPU NVIDIA | Verifica que `nvidia-smi` funciona. Relanza `start.ps1`/`start.sh`: instala CUDA solo. |
+| No detecta mi GPU NVIDIA | Verifica que `nvidia-smi` funciona. Relanza `start.cmd`/`start.sh`: instala CUDA solo. |
+| `start.ps1` "no está firmado digitalmente" | Política de PowerShell. Usa **`scripts\start.cmd`** (doble clic): evita esa restricción. |
 | `ffmpeg failed to convert` | El origen está corrupto o usa un códec raro. Reconviértelo o ábrelo en VLC. |
 | `CUDA out of memory` | Abre **Modo avanzado** y baja de modelo (`medium`/`small`). |
 | El chat IA dice "no está instalado" | Reinstala dependencias: `uv sync` (las libs de IA vienen incluidas). |

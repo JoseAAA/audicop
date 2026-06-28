@@ -1,7 +1,9 @@
 # Audicop launcher (Windows, PowerShell). Run from a terminal:
 #   .\scripts\start.ps1
-# If PowerShell blocks it ("execution of scripts is disabled"), run once:
-#   powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+# If PowerShell blocks .ps1 files (corporate "AllSigned"/RemoteSigned policy,
+# or files marked as downloaded via OneDrive), just double-click
+# `scripts\start.cmd` instead -- it runs this same launcher in a way the
+# execution policy does not restrict.
 #
 # One-step setup: auto-installs `uv` if missing, syncs deps, starts the server.
 # Auto-detects an NVIDIA GPU and pulls in the CUDA libs when present.
@@ -9,7 +11,14 @@
 
 $ErrorActionPreference = "Stop"
 
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+# Resolve the repo root robustly. $PSScriptRoot is set when run as a file
+# (`-File scripts\start.ps1`); when start.cmd runs us inline to dodge the
+# execution policy, it passes the scripts dir via $env:AUDICOP_SCRIPT_DIR.
+$ScriptDir =
+    if ($PSScriptRoot) { $PSScriptRoot }
+    elseif ($env:AUDICOP_SCRIPT_DIR) { ($env:AUDICOP_SCRIPT_DIR).TrimEnd('\') }
+    else { Join-Path (Get-Location) "scripts" }
+$RepoRoot = Split-Path -Parent $ScriptDir
 Set-Location $RepoRoot
 $Port = if ($env:PORT) { $env:PORT } else { "8000" }
 $Url = "http://localhost:$Port"

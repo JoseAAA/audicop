@@ -223,6 +223,7 @@ y rechaza peticiones de orígenes externos (anti-CSRF). Detalle en
 | `WinError 1314` / "privilegio requerido" | Audicop ya lo maneja: descarga sin symlinks a `~/.cache/audicop/models`. Si persiste, borra `~/.cache/huggingface` y reabre. |
 | No detecta mi GPU NVIDIA | Verifica que `nvidia-smi` funciona. Relanza `start.cmd`/`start.sh`: instala CUDA solo. |
 | `start.ps1` "no está firmado digitalmente" | Política de PowerShell. Usa **`scripts\start.cmd`** (doble clic): evita esa restricción. |
+| Errores raros al instalar / crear el `.venv` | ¿El proyecto está en **OneDrive/Dropbox/Google Drive**? El launcher te avisa. Clónalo en una ruta local (`C:\dev\audicop`) y reintenta. |
 | `ffmpeg failed to convert` | El origen está corrupto o usa un códec raro. Reconviértelo o ábrelo en VLC. |
 | `CUDA out of memory` | Abre **Modo avanzado** y baja de modelo (`medium`/`small`). |
 | El chat IA dice "no está instalado" | Reinstala dependencias: `uv sync` (las libs de IA vienen incluidas). |

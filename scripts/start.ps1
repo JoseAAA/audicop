@@ -23,6 +23,28 @@ Set-Location $RepoRoot
 $Port = if ($env:PORT) { $env:PORT } else { "8000" }
 $Url = "http://localhost:$Port"
 
+# Warn if running from cloud-synced storage (OneDrive, Dropbox, Google Drive…).
+# It's the usual culprit behind setup failures: scripts get blocked (the
+# "downloaded from internet" mark), and the sync client churns/locks the .venv
+# while uv creates it. A plain local path avoids all of it.
+$cloudHit = $null
+$rootLower = $RepoRoot.ToLower()
+foreach ($m in @("onedrive", "dropbox", "google drive", "googledrive", "\my drive\",
+                 "nextcloud", "icloud", "creative cloud", "pcloud", "box sync")) {
+    if ($rootLower.Contains($m)) { $cloudHit = $m.Trim('\'); break }
+}
+foreach ($v in @($env:OneDrive, $env:OneDriveConsumer, $env:OneDriveCommercial)) {
+    if (-not $cloudHit -and $v -and $rootLower.StartsWith($v.ToLower())) { $cloudHit = "OneDrive" }
+}
+if ($cloudHit) {
+    Write-Host ""
+    Write-Host "ADVERTENCIA: Audicop esta en una carpeta sincronizada a la nube ($cloudHit)." -ForegroundColor Yellow
+    Write-Host "  Esto suele causar fallos: PowerShell bloquea el script y la creacion del" -ForegroundColor Yellow
+    Write-Host "  entorno (.venv) falla o va lenta por la sincronizacion." -ForegroundColor Yellow
+    Write-Host "  Recomendado: clona el proyecto en una ruta local, p.ej. C:\dev\audicop." -ForegroundColor Yellow
+    Write-Host ""
+}
+
 # Resolve how to call uv: prefer `uv`, else `python -m uv`.
 $UvExe = $null
 $UvArgs = @()

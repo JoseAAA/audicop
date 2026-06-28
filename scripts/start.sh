@@ -9,6 +9,20 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd)"
 cd "${REPO_ROOT}"
 
+# Warn if running from cloud-synced storage (OneDrive, Dropbox, Google Drive,
+# iCloud…). It tends to break setup: the sync client churns/locks the .venv
+# while uv creates it. A plain local path avoids it.
+case "$(printf '%s' "${REPO_ROOT}" | tr '[:upper:]' '[:lower:]')" in
+    *onedrive*|*dropbox*|*"google drive"*|*googledrive*|*"/my drive/"*|*nextcloud*|\
+    *"/library/mobile documents"*|*pcloud*)
+        echo ""
+        echo "ADVERTENCIA: Audicop esta en una carpeta sincronizada a la nube."
+        echo "  Puede fallar o ir lento al crear el entorno (.venv) por la sincronizacion."
+        echo "  Recomendado: clona el proyecto en una ruta local, p.ej. ~/audicop."
+        echo ""
+        ;;
+esac
+
 PORT="${PORT:-8000}"
 URL="http://localhost:${PORT}"
 

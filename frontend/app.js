@@ -513,7 +513,7 @@ async function sendChat(prompt) {
 // Recording (voice + meeting). Captures locally on the server, then feeds the
 // resulting WAV into the same transcription flow as an uploaded file.
 // ---------------------------------------------------------------------------
-const rec = { active: false, mode: null, timer: null, t0: 0 };
+const rec = { active: false, mode: null, timer: null, t0: 0, paused: false, accumMs: 0 };
 let captureAvailable = true;
 let meetingPoll = null;
 let lastMeetingApp = null; // for one-shot "meeting detected" notifications
@@ -526,25 +526,57 @@ function fmtClock(sec) {
 
 function recEls(mode) {
   const p = mode === "voice" ? "voice" : "meeting";
-  return { start: $(`${p}-start`), live: $(`${p}-live`), time: $(`${p}-time`), stop: $(`${p}-stop`) };
+  return {
+    start: $(`${p}-start`), live: $(`${p}-live`), time: $(`${p}-time`),
+    stop: $(`${p}-stop`), pause: $(`${p}-pause`),
+  };
 }
 
 function setRecUI(mode, recording) {
   const el = recEls(mode);
   el.start.hidden = recording;
   el.live.hidden = !recording;
+  if (!recording) el.live.classList.remove("is-paused");
 }
 
 function startTimer(mode) {
   rec.t0 = Date.now();
+  rec.accumMs = 0;
+  rec.paused = false;
   const el = recEls(mode);
   el.time.textContent = "00:00";
+  el.pause.textContent = "⏸ Pausar";
   rec.timer = setInterval(() => {
-    el.time.textContent = fmtClock((Date.now() - rec.t0) / 1000);
+    const ms = rec.accumMs + (rec.paused ? 0 : Date.now() - rec.t0);
+    el.time.textContent = fmtClock(ms / 1000);
   }, 500);
 }
 function stopTimer() {
   if (rec.timer) { clearInterval(rec.timer); rec.timer = null; }
+}
+
+async function togglePause(mode) {
+  if (!rec.active) return;
+  const el = recEls(mode);
+  const pausing = !rec.paused;
+  try {
+    const r = await fetch(`/api/record/${pausing ? "pause" : "resume"}`, { method: "POST" });
+    if (!r.ok) { toast("No se pudo pausar/reanudar la grabación."); return; }
+  } catch (e) {
+    toast("No se pudo contactar al servidor.");
+    return;
+  }
+  if (pausing) {
+    rec.accumMs += Date.now() - rec.t0; // freeze elapsed; paused time isn't recorded
+    rec.paused = true;
+    el.pause.textContent = "▶ Reanudar";
+    el.live.classList.add("is-paused");
+  } else {
+    rec.t0 = Date.now();
+    rec.paused = false;
+    el.pause.textContent = "⏸ Pausar";
+    el.live.classList.remove("is-paused");
+  }
 }
 
 async function startRecording(mode) {
@@ -666,8 +698,10 @@ function init() {
   // recording: voice + meeting
   $("voice-start").addEventListener("click", () => startRecording("voice"));
   $("voice-stop").addEventListener("click", () => stopRecording("voice"));
+  $("voice-pause").addEventListener("click", () => togglePause("voice"));
   $("meeting-start").addEventListener("click", () => startRecording("meeting"));
   $("meeting-stop").addEventListener("click", () => stopRecording("meeting"));
+  $("meeting-pause").addEventListener("click", () => togglePause("meeting"));
   $("rec-consent").addEventListener("change", updateMeetingStart);
   // Ask for notification permission when the user opens the meeting tab.
   document.querySelectorAll("[data-tab]").forEach((tab) =>

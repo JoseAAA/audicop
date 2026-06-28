@@ -203,3 +203,13 @@ def test_recorder_voice_single_track_no_mixing(tmp_path: Path) -> None:
     assert res.mixed_path == res.mic_path  # single track is used as-is
     assert res.others_path is None
     assert res.mixed_path.exists()
+
+
+def test_recorder_pause_resume_state(tmp_path: Path) -> None:
+    """pause()/resume() flip is_paused; the capture threads honor the flag."""
+    r = capture.Recorder(include_mic=True, include_loopback=False, out_dir=tmp_path)
+    assert r.is_paused is False
+    r.pause()
+    assert r.is_paused is True
+    r.resume()
+    assert r.is_paused is False

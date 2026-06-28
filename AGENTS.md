@@ -58,6 +58,12 @@ chat IA) es valor añadido y no debe estorbar ese flujo.
 El audio original **nunca** se sube a la nube. El chat IA solo envía el **texto**
 ya transcrito, y solo si el usuario lo usa activamente.
 
+**Defensa local:** el servidor escucha solo en `127.0.0.1` (los launchers usan
+`--host 127.0.0.1`) y un middleware rechaza peticiones POST/PUT/DELETE cuyo
+`Origin` no sea localhost (anti-CSRF: evita que una web maliciosa que visites
+dispare `/api/record/start` u otras acciones). No hay autenticación porque es
+de un solo usuario en su propia máquina; **no exponer el puerto a la red**.
+
 ---
 
 ## §4. Arquitectura (frontend / backend, por capas)
@@ -79,7 +85,7 @@ backend/app/
 ├── api/                 Rutas FastAPI (capa I/O):
 │   ├── hardware.py        GET /api/hardware
 │   ├── transcribe.py      POST /api/transcribe + GET .../events (SSE)
-│   ├── record.py          GET /api/record/meeting + POST .../start + .../stop
+│   ├── record.py          GET /api/record/meeting + POST .../start|pause|resume|stop
 │   └── chat.py            POST /api/chat (SSE)
 ├── prompts/             Paquete: __init__.py carga los .md editables (system, context, actions/*).
 └── main.py              FastAPI: monta routers + sirve frontend/.

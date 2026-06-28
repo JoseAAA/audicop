@@ -61,6 +61,7 @@
             <div id="voice-live" class="rec__live" hidden>
               <span class="rec__dot"></span>
               <span>Grabando… <strong id="voice-time">00:00</strong></span>
+              <button id="voice-pause" class="btn btn--ghost">⏸ Pausar</button>
               <button id="voice-stop" class="btn btn--ghost">⏹ Detener y transcribir</button>
             </div>
           </div>
@@ -82,10 +83,12 @@
             <div id="meeting-live" class="rec__live" hidden>
               <span class="rec__dot"></span>
               <span>Grabando… <strong id="meeting-time">00:00</strong></span>
+              <button id="meeting-pause" class="btn btn--ghost">⏸ Pausar</button>
               <button id="meeting-stop" class="btn btn--ghost">⏹ Detener y transcribir</button>
             </div>
           </div>
           <p class="muted small">Se graba lo que dicen los demás + tu micrófono y se transcribe 100% en tu equipo. Nada se sube.</p>
+          <p class="muted small">⚠️ Tu micrófono se graba a nivel del sistema: <strong>silenciarte en Meet/Teams NO detiene la grabación</strong>. Usa <strong>Pausar</strong> para no grabar un momento privado.</p>
         </div>
 
         <div id="file-chosen" class="chosen" hidden></div>

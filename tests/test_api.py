@@ -89,6 +89,28 @@ def test_transcribe_requires_input() -> None:
     assert r.status_code == 400
 
 
+def test_csrf_blocks_remote_origin() -> None:
+    """A POST from a remote site is rejected before reaching the endpoint."""
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/transcribe",
+            headers={"Origin": "http://evil.example"},
+            data={"model_size": "tiny", "compute_type": "int8", "device": "cpu"},
+        )
+    assert r.status_code == 403
+
+
+def test_csrf_allows_localhost_origin() -> None:
+    """A same-origin (localhost) POST passes the guard (then fails on missing input)."""
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/transcribe",
+            headers={"Origin": "http://localhost:8000"},
+            data={"model_size": "tiny", "compute_type": "int8", "device": "cpu"},
+        )
+    assert r.status_code == 400
+
+
 def test_transcribe_flow_streams_events() -> None:
     """POST starts a job; SSE streams meta → segment → done."""
     fake_events = [

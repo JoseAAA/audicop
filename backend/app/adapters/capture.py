@@ -23,6 +23,7 @@ pipeline as an uploaded file. See AGENTS.md §3.
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import logging
 import sys
@@ -223,28 +224,32 @@ def _wav_duration_s(path: Path) -> float:
 
 
 def _mix_wavs(paths: list[Path], out: Path) -> None:
-    """Mix several 16 kHz mono int16 WAVs into one, averaging to avoid clipping."""
-    tracks: list[Any] = []
-    for p in paths:
-        with wave.open(str(p), "rb") as wf:
-            frames = wf.readframes(wf.getnframes())
-        tracks.append(np.frombuffer(frames, dtype=np.int16).astype(np.int32))
+    """Mix several 16 kHz mono int16 WAVs into one, averaging to avoid clipping.
 
-    length = min((int(t.shape[0]) for t in tracks), default=0)
-    if length == 0:
-        raise CaptureError("Las pistas de audio están vacías.")
-
-    mixed = np.zeros(length, dtype=np.int32)
-    for t in tracks:
-        mixed += t[:length]
-    mixed //= len(tracks)
-    out_i16 = np.clip(mixed, -32768, 32767).astype(np.int16)
-
-    with wave.open(str(out), "wb") as wf:
+    Streams the inputs in ~1 s chunks so peak memory stays tiny regardless of
+    recording length (a 3-hour meeting would otherwise load ~1 GB of samples
+    into RAM at once).
+    """
+    with contextlib.ExitStack() as stack:
+        readers = [stack.enter_context(wave.open(str(p), "rb")) for p in paths]
+        total = min((r.getnframes() for r in readers), default=0)
+        if total == 0:
+            raise CaptureError("Las pistas de audio están vacías.")
+        wf = stack.enter_context(wave.open(str(out), "wb"))
         wf.setnchannels(config.TARGET_CHANNELS)
         wf.setsampwidth(2)
         wf.setframerate(config.TARGET_SAMPLE_RATE)
-        wf.writeframes(out_i16.tobytes())
+        remaining = total
+        chunk = config.TARGET_SAMPLE_RATE  # ~1 second of frames per iteration
+        while remaining > 0:
+            take = min(chunk, remaining)
+            acc = np.zeros(take, dtype=np.int32)
+            for reader in readers:
+                block = np.frombuffer(reader.readframes(take), dtype=np.int16)
+                acc[: block.shape[0]] += block.astype(np.int32)
+            acc //= len(readers)
+            wf.writeframes(np.clip(acc, -32768, 32767).astype(np.int16).tobytes())
+            remaining -= take
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,6 +277,7 @@ class _SourceThread(threading.Thread):
         make_source: Callable[[], Any],
         wav_path: Path,
         stop_event: threading.Event,
+        pause_event: threading.Event,
         label: str,
     ) -> None:
         """Initialize the capture thread (daemonized so it never blocks exit)."""
@@ -281,6 +287,7 @@ class _SourceThread(threading.Thread):
         self._make_source = make_source
         self._wav_path = wav_path
         self._stop_event = stop_event
+        self._pause_event = pause_event
         self.label = label
         self.error: str | None = None
         self._ready = threading.Event()
@@ -304,8 +311,12 @@ class _SourceThread(threading.Thread):
                     warnings.filterwarnings("ignore", message="data discontinuity in recording")
                     self._ready.set()
                     while not self._stop_event.is_set():
+                        # Always drain the device (avoids buffer overruns), but
+                        # only persist frames when not paused — a pause cleanly
+                        # drops that span instead of recording it.
                         block = rec.record(numframes=config.RECORD_BLOCK_FRAMES)
-                        wf.writeframes(_float_block_to_int16_bytes(block))
+                        if not self._pause_event.is_set():
+                            wf.writeframes(_float_block_to_int16_bytes(block))
         except Exception as exc:
             self.error = str(exc)
             logger.exception("Capture thread %s failed", self.label)
@@ -343,9 +354,23 @@ class Recorder:
         self._include_loopback = include_loopback
         self._out_dir = out_dir
         self._stop = threading.Event()
+        self._pause = threading.Event()
         self._threads: list[_SourceThread] = []
         self._mic_path: Path | None = None
         self._others_path: Path | None = None
+
+    def pause(self) -> None:
+        """Stop persisting audio until :meth:`resume`; the paused span is dropped."""
+        self._pause.set()
+
+    def resume(self) -> None:
+        """Resume persisting audio after a :meth:`pause`."""
+        self._pause.clear()
+
+    @property
+    def is_paused(self) -> bool:
+        """Whether capture is currently paused."""
+        return self._pause.is_set()
 
     def start(self) -> None:
         """Open the devices and begin capturing in background threads.
@@ -360,13 +385,19 @@ class Recorder:
             self._others_path = self._out_dir / "others.wav"
             self._threads.append(
                 _SourceThread(
-                    lambda: _loopback_source(sc), self._others_path, self._stop, _OTHERS_TRACK
+                    lambda: _loopback_source(sc),
+                    self._others_path,
+                    self._stop,
+                    self._pause,
+                    _OTHERS_TRACK,
                 )
             )
         if self._include_mic:
             self._mic_path = self._out_dir / "mic.wav"
             self._threads.append(
-                _SourceThread(lambda: _mic_source(sc), self._mic_path, self._stop, _MIC_TRACK)
+                _SourceThread(
+                    lambda: _mic_source(sc), self._mic_path, self._stop, self._pause, _MIC_TRACK
+                )
             )
 
         for t in self._threads:

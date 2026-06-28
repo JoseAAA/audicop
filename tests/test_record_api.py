@@ -65,6 +65,27 @@ def test_start_then_stop_returns_path(tmp_path: Path) -> None:
     fake_recorder.stop.assert_called_once()
 
 
+def test_pause_resume(tmp_path: Path) -> None:
+    fake_recorder = MagicMock()
+    with (
+        patch.object(rec_mod, "is_capture_available", return_value=True),
+        patch.object(rec_mod, "Recorder", return_value=fake_recorder),
+        patch.object(rec_mod, "_fresh_recording_dir", return_value=tmp_path),
+        TestClient(app) as client,
+    ):
+        client.post("/api/record/start", json={"mode": "voice"})
+        assert client.post("/api/record/pause").json() == {"paused": True}
+        assert client.post("/api/record/resume").json() == {"paused": False}
+    fake_recorder.pause.assert_called_once()
+    fake_recorder.resume.assert_called_once()
+
+
+def test_pause_without_recording_conflicts() -> None:
+    with TestClient(app) as client:
+        assert client.post("/api/record/pause").status_code == 409
+        assert client.post("/api/record/resume").status_code == 409
+
+
 def test_double_start_conflicts(tmp_path: Path) -> None:
     with (
         patch.object(rec_mod, "is_capture_available", return_value=True),

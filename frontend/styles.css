@@ -245,6 +245,7 @@ a { color: var(--primary); }
   flex: none; animation: rec-pulse 1.2s ease-in-out infinite;
 }
 @keyframes rec-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+.rec__live.is-paused .rec__dot { animation: none; background: var(--warning); opacity: 0.6; }
 .meeting-detect {
   padding: 10px 12px; border-radius: var(--r-md); font-size: 14px; margin-bottom: 12px;
   background: var(--bg); border: 1px solid var(--border); color: var(--text-muted);

@@ -101,6 +101,26 @@ def start_recording(req: StartRequest) -> dict[str, object]:
     return {"recording": True, "mode": req.mode}
 
 
+@router.post("/pause")
+def pause_recording() -> dict[str, object]:
+    """Pause the active recording (the paused span is dropped, not recorded)."""
+    with _lock:
+        if _active is None:
+            raise HTTPException(status_code=409, detail="No hay ninguna grabación en curso.")
+        _active.pause()
+    return {"paused": True}
+
+
+@router.post("/resume")
+def resume_recording() -> dict[str, object]:
+    """Resume a paused recording."""
+    with _lock:
+        if _active is None:
+            raise HTTPException(status_code=409, detail="No hay ninguna grabación en curso.")
+        _active.resume()
+    return {"paused": False}
+
+
 @router.post("/stop")
 def stop_recording() -> dict[str, object]:
     """Stop the active recording and return the WAV path to transcribe."""

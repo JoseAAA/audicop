@@ -9,8 +9,9 @@
 [![uv](https://img.shields.io/badge/deps-uv-2563eb.svg)](https://docs.astral.sh/uv/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-App web **local** que transcribe y traduce audio/vídeo con Whisper. Autodetecta
-tu hardware y elige el mejor modelo que tu equipo puede correr — sin que tengas
+App web **local** que transcribe y traduce audio/vídeo con Whisper — sube un
+archivo, **graba tu voz** o **graba una reunión** (Meet/Teams/Zoom). Autodetecta
+tu hardware y elige el mejor modelo que tu equipo puede correr, sin que tengas
 que pensarlo. Además te da timestamps estilo YouTube, export a SRT/VTT y un chat
 con IA (tu propia API key) para resumir y analizar lo dicho.
 
@@ -84,8 +85,9 @@ Todo queda dentro de la carpeta del proyecto. **No toca tu Python del sistema.**
 
 - 🎚️ **Tres formas de obtener audio** — (1) **subir** un archivo (o pegar la ruta
   de un vídeo grande), (2) **grabar tu voz** (nota/dictado) o (3) **grabar una
-  reunión** (lo que dicen los demás + tu micrófono). Detecta Teams/Zoom y ofrece
-  grabar con un clic. Todo se transcribe igual, 100% local.
+  reunión** (lo que dicen los demás + tu micrófono), con **Pausa** para no
+  grabar momentos privados. Detecta cuándo estás en una reunión (Meet, Teams o
+  Zoom, por el uso del micrófono) y te avisa para grabar. Todo 100% local.
 - 🤖 **Autodetección de hardware** — elige modelo y `compute_type` por ti, según
   la memoria **libre** (no la total), para no ahogar tu equipo.
 - ⚡ **Whisper turbo + batched** — usa `large-v3-turbo` (calidad casi `large-v3`,
@@ -109,14 +111,15 @@ Todo queda dentro de la carpeta del proyecto. **No toca tu Python del sistema.**
 ```
  Navegador (frontend vanilla)          Backend (FastAPI · uvicorn, local)
 ┌───────────────────────────┐  HTTP   ┌───────────────────────────────────────┐
-│ Subir / Ruta → progreso    │ ─────▶  │ ffmpeg → faster-whisper → segments      │
+│ Subir / Grabar → progreso  │ ─────▶  │ ffmpeg → faster-whisper → segments      │
 │ (SSE en vivo) → resultado  │ ◀─SSE─  │ (16kHz mono)   (CTranslate2)            │
 │ → chat IA                  │         │ chat → OpenAI/Gemini (tu key)           │
 └───────────────────────────┘         └───────────────────────────────────────┘
        (todo local salvo el chat IA y la descarga inicial del modelo)
 ```
 
-1. Subes un archivo (≤ 2 GB) o pegas una ruta local (sin límite de tamaño).
+1. Eliges la entrada: **subes** un archivo (≤ 2 GB) o pegas una ruta local (sin
+   límite), **grabas tu voz**, o **grabas una reunión** (mic + audio del sistema).
 2. El backend extrae el audio a 16 kHz mono con el ffmpeg empaquetado.
 3. faster-whisper decodifica y va emitiendo segmentos; el progreso llega al
    navegador en vivo por SSE.
@@ -158,9 +161,9 @@ consumen una parte, y respetarla evita que el equipo se ahogue.
 - **Vídeo:** mp4, mkv, mov, avi, webm — *se extrae sólo la pista de audio*.
 - **Duración:** hasta **3 horas** probadas (Whisper usa ventanas de 30 s, así que
   la VRAM no crece con la duración).
-- **Subida:** hasta **2 GB** por la pestaña "Subir archivo". ¿Vídeo más grande?
-  usa **"Archivo local"** y pega la ruta absoluta — Audicop lee del disco, sin
-  subida ni límite.
+- **Subida:** hasta **2 GB** por la pestaña **Subir**. ¿Vídeo más grande? dentro
+  de **Subir**, despliega *"¿Vídeo grande? Pega la ruta del archivo"* y pega la
+  ruta absoluta — Audicop lee del disco, sin subida ni límite.
 
 ### ¿Cuánto tarda? (referencia, 1 hora de audio)
 
@@ -195,13 +198,19 @@ ChatGPT, etc.
 | Acción                    | ¿Sale a la red?                                        |
 |---------------------------|--------------------------------------------------------|
 | Detección de hardware     | ❌ (psutil, nvidia-smi, platform — solo lectura)       |
+| Detección de reunión      | ❌ (lee del registro qué app usa el micrófono)         |
+| Grabación (mic / sistema) | ❌ (soundcard local; el WAV se queda en tu equipo)     |
 | Conversión + transcripción| ❌ (local; el modelo solo se descarga la 1ª vez)       |
 | **Chat con IA**           | ✅ Envía el **texto** de la transcripción al proveedor  |
 |                           | elegido con **tu** API key. El audio nunca se sube.    |
 
 La API key vive solo en la sesión: **nunca** se escribe a disco ni a logs.
-Sin telemetría, sin analytics, sin acceso a webcam/micrófono/portapapeles.
-Detalle completo en [AGENTS.md](AGENTS.md) §3.
+Sin telemetría, sin analytics, sin acceso a webcam ni portapapeles. El
+**micrófono y el audio del sistema** solo se capturan en los modos de
+**grabación**, por tu acción explícita (y consentimiento, en reuniones); el
+audio grabado nunca sale del equipo. El servidor escucha solo en `localhost`
+y rechaza peticiones de orígenes externos (anti-CSRF). Detalle en
+[AGENTS.md](AGENTS.md) §3.
 
 ---
 
@@ -216,6 +225,9 @@ Detalle completo en [AGENTS.md](AGENTS.md) §3.
 | `ffmpeg failed to convert` | El origen está corrupto o usa un códec raro. Reconviértelo o ábrelo en VLC. |
 | `CUDA out of memory` | Abre **Modo avanzado** y baja de modelo (`medium`/`small`). |
 | El chat IA dice "no está instalado" | Reinstala dependencias: `uv sync` (las libs de IA vienen incluidas). |
+| La reunión no capta a los demás | El loopback graba lo que suena por tus **altavoces**. Con auriculares Bluetooth o salidas raras puede no capturarse; usa los altavoces del equipo. |
+| Me silencié en Meet pero igual me grabó | El micrófono se graba a nivel del sistema; silenciarte en la app no lo detiene. Usa **Pausar** o desmarca "Incluir mi micrófono". |
+| "Este equipo no tiene captura de audio disponible" | No hay dispositivos de audio (o reiniciaste el server con código viejo). Reinicia con `start.cmd`/`start.sh`. |
 
 ---
 

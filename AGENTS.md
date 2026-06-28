@@ -47,7 +47,7 @@ chat IA) es valor añadido y no debe estorbar ese flujo.
 | Acción                     | ¿Sale a la red?                                    |
 |----------------------------|----------------------------------------------------|
 | Detección de hardware      | No (psutil, nvidia-smi, platform — solo lectura)   |
-| Detección de reunión       | No (psutil lee nombres de procesos; ni red ni audio)|
+| Detección de reunión       | No (lee del registro qué app usa el micrófono; ni red ni audio) |
 | Grabación (mic / loopback) | No (soundcard local; el WAV se queda en el equipo) |
 | Conversión a WAV (ffmpeg)  | No (binario local empaquetado)                     |
 | Transcripción (Whisper)    | No (modelo local; solo se descarga la 1ª vez)      |
@@ -70,13 +70,13 @@ de un solo usuario en su propia máquina; **no exponer el puerto a la red**.
 
 ```
 backend/app/
-├── core/config.py       Constantes: formatos, tabla de modelos, IA, export. Sin lógica.
+├── core/config.py       Constantes: formatos, tabla de modelos, grabación, IA, export. Sin lógica.
 ├── adapters/            Drivers finos sobre integraciones externas:
 │   ├── hardware.py        detect_hardware() → HardwareInfo (psutil + nvidia-smi).
 │   ├── audio.py           to_wav_16k() vía ffmpeg empaquetado + limpieza.
 │   ├── transcriber.py     Wrapper de WhisperModel (turbo + batched GPU). DLL CUDA. Fallback sin symlinks.
-│   ├── capture.py         Grabación local mic + loopback (soundcard) → WAV 16k. Import perezoso.
-│   ├── meeting.py         detect_active_meeting() vía psutil (Teams/Zoom/…).
+│   ├── capture.py         Grabación local mic + loopback (soundcard) → WAV 16k. COM aislado por hilo.
+│   ├── meeting.py         detect_active_meeting(): qué app usa el micrófono (winreg). Meet/Teams/Zoom.
 │   └── llm.py             Cliente agnóstico (OpenAI/Gemini), streaming, BYO key.
 ├── services/            Lógica de negocio pura (testeable):
 │   ├── recommender.py     recommend(hw) → ModelChoice (memoria LIBRE, no total).
@@ -88,7 +88,7 @@ backend/app/
 │   ├── record.py          GET /api/record/meeting + POST .../start|pause|resume|stop
 │   └── chat.py            POST /api/chat (SSE)
 ├── prompts/             Paquete: __init__.py carga los .md editables (system, context, actions/*).
-└── main.py              FastAPI: monta routers + sirve frontend/.
+└── main.py              FastAPI: guard CSRF (Origin) + monta routers + sirve frontend/.
 
 frontend/                Estático, vanilla, offline (sin Node/CDN):
 ├── index.html, styles.css ("Slate"), app.js (fetch + SSE)
@@ -166,7 +166,8 @@ Frontend: **cero dependencias** (vanilla, sin Node/CDN).
   `llm.py` con imports perezosos (la app arranca sin las libs instaladas).
 - Añadir un proveedor = nueva función `_stream_<provider>` + entrada en las
   constantes; sin refactor del resto.
-- Streaming por defecto (`st.write_stream`) para feedback inmediato.
+- Streaming por defecto (SSE; el frontend lee el `ReadableStream`) para feedback
+  inmediato.
 
 ---
 

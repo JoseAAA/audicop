@@ -46,6 +46,11 @@ fi
 
 echo "==> uv: $("${UV[@]}" --version)"
 
+# Be patient on slow / corporate networks: some wheels (av, ctranslate2, the
+# CUDA libs) are tens to hundreds of MB and uv's default 30 s per-download
+# timeout is easy to exceed behind a proxy.
+export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
+
 SYNC_ARGS=()
 if command -v nvidia-smi >/dev/null 2>&1; then
     echo "==> GPU NVIDIA detectada — instalando soporte CUDA (cuBLAS + cuDNN)"

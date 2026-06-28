@@ -218,7 +218,8 @@ y rechaza peticiones de orígenes externos (anti-CSRF). Detalle en
 
 | Problema | Solución |
 |----------|----------|
-| El modelo tarda en la 1ª descarga | Normal (`large-v3` ~3 GB). Luego sale de caché. |
+| El modelo tarda en la 1ª descarga | Normal (`large-v3-turbo` ~1.6 GB). Luego sale de caché. |
+| `Failed to download` / `network timeout` al instalar | Red lenta o proxy corporativo. El launcher ya usa `UV_HTTP_TIMEOUT=300`; **reintenta** `start.cmd` (uv continúa donde quedó). Con proxy, define `HTTP_PROXY`/`HTTPS_PROXY`. |
 | `WinError 1314` / "privilegio requerido" | Audicop ya lo maneja: descarga sin symlinks a `~/.cache/audicop/models`. Si persiste, borra `~/.cache/huggingface` y reabre. |
 | No detecta mi GPU NVIDIA | Verifica que `nvidia-smi` funciona. Relanza `start.cmd`/`start.sh`: instala CUDA solo. |
 | `start.ps1` "no está firmado digitalmente" | Política de PowerShell. Usa **`scripts\start.cmd`** (doble clic): evita esa restricción. |

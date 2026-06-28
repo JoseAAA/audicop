@@ -50,6 +50,11 @@ if (-not $UvExe) {
 
 Write-Host "==> uv: $(& $UvExe @UvArgs --version)"
 
+# Be patient on slow / corporate networks: some wheels (av, ctranslate2, the
+# CUDA libs) are tens to hundreds of MB and uv's default 30 s per-download
+# timeout is easy to exceed behind a proxy.
+if (-not $env:UV_HTTP_TIMEOUT) { $env:UV_HTTP_TIMEOUT = "300" }
+
 $SyncArgs = @("sync")
 if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
     Write-Host "==> GPU NVIDIA detectada -- instalando soporte CUDA (cuBLAS + cuDNN)"

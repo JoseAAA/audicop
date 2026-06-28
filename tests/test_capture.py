@@ -126,18 +126,30 @@ def test_is_capture_available_false_on_error() -> None:
         assert capture.is_capture_available() is False
 
 
-def test_soundcard_import_error() -> None:
-    import builtins
-
-    real_import = builtins.__import__
-
-    def fake_import(name: str, *a: object, **k: object) -> object:
-        if name == "soundcard":
-            raise ImportError("not installed")
-        return real_import(name, *a, **k)  # type: ignore[arg-type]
-
-    with patch("builtins.__import__", side_effect=fake_import), pytest.raises(capture.CaptureError):
+def test_soundcard_unavailable_raises() -> None:
+    """If soundcard failed to import at load time, _soundcard() raises clearly."""
+    with patch.object(capture, "_SOUNDCARD", None), pytest.raises(capture.CaptureError):
         capture._soundcard()
+
+
+def test_is_capture_available_false_when_module_missing() -> None:
+    with patch.object(capture, "_SOUNDCARD", None):
+        assert capture.is_capture_available() is False
+
+
+def test_run_with_com_returns_value() -> None:
+    """The COM-isolation helper runs the callable on its own thread and returns it."""
+    assert capture._run_with_com(lambda: 21 * 2) == 42
+
+
+def test_run_with_com_propagates_exception() -> None:
+    """Exceptions raised inside the helper's worker thread reach the caller."""
+
+    def boom() -> int:
+        raise ValueError("kaboom")
+
+    with pytest.raises(ValueError, match="kaboom"):
+        capture._run_with_com(boom)
 
 
 def test_loopback_source_falls_back_to_scan() -> None:

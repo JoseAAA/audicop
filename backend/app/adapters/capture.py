@@ -23,14 +23,16 @@ pipeline as an uploaded file. See AGENTS.md §3.
 
 from __future__ import annotations
 
+import ctypes
 import logging
+import sys
 import threading
 import warnings
 import wave
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import numpy as np
 
@@ -47,28 +49,134 @@ _JOIN_TIMEOUT_S: float = 5.0
 _MIC_TRACK: str = "mic"
 _OTHERS_TRACK: str = "others"
 
+_T = TypeVar("_T")
+
 
 class CaptureError(RuntimeError):
     """Raised when audio capture cannot start or fails mid-recording."""
 
 
-def _soundcard() -> Any:
-    """Import and return the ``soundcard`` module, or raise :class:`CaptureError`."""
+# ---------------------------------------------------------------------------
+# Windows COM isolation
+#
+# `soundcard` initializes COM exactly once — on whichever thread imports it
+# first (see its module-level `_com = _COMLibrary()`). But a web server
+# handles requests on a *pool* of threads, and any thread that did not
+# initialize COM fails to enumerate or open audio devices. The failures are
+# sticky once the pool grows, which is why availability would flip to False
+# under polling/load. To stay correct on *any* machine we never touch
+# soundcard from a borrowed pool thread: every operation runs on a thread
+# we spawn ourselves, where we explicitly CoInitializeEx / CoUninitialize.
+# ---------------------------------------------------------------------------
+_COINIT_MULTITHREADED = 0x0
+
+
+def _co_initialize() -> bool:
+    """Join the COM multithreaded apartment on this thread (Windows only).
+
+    Returns ``True`` if we initialized COM here and must balance it with a
+    :func:`_co_uninitialize` call; ``False`` if it was already initialized
+    in another mode (then we must NOT uninitialize) or we are not on Windows.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        hr = ctypes.windll.ole32.CoInitializeEx(None, _COINIT_MULTITHREADED)
+    except Exception:  # pragma: no cover - extremely defensive
+        logger.debug("CoInitializeEx failed", exc_info=True)
+        return False
+    # S_OK (0) and S_FALSE (1) both mean "initialized on this thread"; the
+    # unsigned RPC_E_CHANGED_MODE (0x80010106) means "already, other mode".
+    return hr in (0, 1)
+
+
+def _co_uninitialize() -> None:
+    """Leave the COM apartment on this thread (Windows only). Never raises."""
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.ole32.CoUninitialize()
+    except Exception:  # pragma: no cover - extremely defensive
+        logger.debug("CoUninitialize failed", exc_info=True)
+
+
+def _run_with_com(fn: Callable[[], _T]) -> _T:
+    """Run ``fn`` on a dedicated, COM-initialized thread and return its result.
+
+    Spawning a fresh thread guarantees a clean COM apartment for the call,
+    so soundcard never depends on (or corrupts) the web server's shared
+    thread pool. Exceptions raised by ``fn`` are re-raised to the caller.
+    """
+    box: dict[str, Any] = {}
+
+    def worker() -> None:
+        initialized = _co_initialize()
+        try:
+            box["value"] = fn()
+        except BaseException as exc:
+            box["error"] = exc
+        finally:
+            if initialized:
+                _co_uninitialize()
+
+    thread = threading.Thread(target=worker, name="audicop-com", daemon=True)
+    thread.start()
+    thread.join()
+    if "error" in box:
+        raise box["error"]
+    return box["value"]  # type: ignore[no-any-return]
+
+
+def _import_soundcard() -> Any:
+    """Import ``soundcard`` once, on the importing (main) thread.
+
+    soundcard initializes COM in its module body and only accepts ``S_OK``
+    there — so the import MUST happen on a stable, long-lived thread. If it
+    ran inside a worker thread that we had already ``CoInitializeEx``-d,
+    soundcard's own init would receive ``S_FALSE`` and raise. Importing here
+    (module load = main thread) sidesteps that entirely.
+
+    Returns the module, or ``None`` if the audio backend is unavailable —
+    the app keeps running and only the recording modes are disabled.
+    """
     try:
         import soundcard
-    except Exception as exc:  # ImportError or a backend load failure
-        raise CaptureError(
-            "No se pudo cargar el sistema de audio para grabar. "
-            "Reinstala dependencias con `uv sync` o revisa los drivers de audio."
-        ) from exc
+    except Exception:
+        logger.warning(
+            "soundcard no se pudo cargar; los modos de grabación quedan deshabilitados.",
+            exc_info=True,
+        )
+        return None
     return soundcard
 
 
+_SOUNDCARD: Any = _import_soundcard()
+
+
+def _soundcard() -> Any:
+    """Return the pre-imported soundcard module, or raise :class:`CaptureError`."""
+    if _SOUNDCARD is None:
+        raise CaptureError(
+            "No se pudo cargar el sistema de audio para grabar. "
+            "Reinstala dependencias con `uv sync` o revisa los drivers de audio."
+        )
+    return _SOUNDCARD
+
+
+def _has_any_device() -> bool:
+    sc = _soundcard()
+    return bool(sc.all_speakers()) or bool(sc.all_microphones())
+
+
 def is_capture_available() -> bool:
-    """Return ``True`` if this machine exposes any audio device we can record."""
+    """Return ``True`` if this machine exposes any audio device we can record.
+
+    Runs the soundcard probe on a dedicated COM-initialized thread so the
+    answer is reliable no matter which server thread asks (see the COM
+    isolation note above).
+    """
     try:
-        sc = _soundcard()
-        return bool(sc.all_speakers()) or bool(sc.all_microphones())
+        return _run_with_com(_has_any_device)
     except Exception:
         logger.debug("Audio capture not available", exc_info=True)
         return False
@@ -179,6 +287,7 @@ class _SourceThread(threading.Thread):
 
     def run(self) -> None:
         """Open the device in this thread and stream blocks to the WAV file."""
+        com_initialized = _co_initialize()  # this thread owns its COM apartment
         try:
             source = self._make_source()
             with wave.open(str(self._wav_path), "wb") as wf:
@@ -202,6 +311,8 @@ class _SourceThread(threading.Thread):
             logger.exception("Capture thread %s failed", self.label)
         finally:
             self._ready.set()  # unblock the starter even if we errored early
+            if com_initialized:
+                _co_uninitialize()
 
     def wait_until_ready(self, timeout: float) -> None:
         """Block until the device is open (or the thread errored) or ``timeout``."""

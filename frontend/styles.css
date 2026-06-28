@@ -39,6 +39,9 @@
 }
 
 * { box-sizing: border-box; }
+/* The `hidden` attribute must always win, even over our display rules
+   (e.g. .rec__live sets display:flex). Without this, hidden elements show. */
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;

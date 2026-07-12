@@ -13,7 +13,7 @@ App web **local** que transcribe y traduce audio/vídeo con Whisper — sube un
 archivo, **graba tu voz** o **graba una reunión** (Meet/Teams/Zoom). Autodetecta
 tu hardware y elige el mejor modelo que tu equipo puede correr, sin que tengas
 que pensarlo. Además te da timestamps estilo YouTube, export a SRT/VTT y un chat
-con IA (tu propia API key) para resumir y analizar lo dicho.
+con **IA local** para resumir y analizar lo dicho — sin clave ni nube.
 
 Es **un solo proceso local** (FastAPI + uvicorn sirviendo un frontend propio).
 **Sin Docker, sin Node, sin build** — doble clic y listo.
@@ -97,9 +97,12 @@ Todo queda dentro de la carpeta del proyecto. **No toca tu Python del sistema.**
 - 🎬 **Multi-formato** — audio (mp3, wav, m4a, ogg, flac, aac) y vídeo (mp4, mkv,
   mov, avi, webm — extrae sólo el audio).
 - ⏱️ **Timestamps estilo YouTube** — cada línea con el minuto en que se dijo.
-- ⬇️ **Export** — descarga `.txt`, `.srt` y `.vtt`.
-- 🧠 **Chat con IA (BYO key)** — resume, saca tareas o pregunta lo que quieras
-  sobre el audio con OpenAI o Gemini.
+- 📚 **Biblioteca de reuniones** — cada transcripción se guarda en tu equipo
+  (SQLite local): reábrelas, búscalas, renómbralas o bórralas cuando quieras.
+- ⬇️ **Export** — transcripción a `.txt`/`.srt`/`.vtt` y la nota de IA a `.md`.
+- 🧠 **Chat con IA 100% local** — resume, saca tareas o pregunta lo que quieras
+  sobre el audio con un modelo pequeño pero potente (Qwen/Llama vía llama.cpp)
+  que corre en tu propio equipo. Sin clave, sin nube.
 - 📦 **Sin dependencias de sistema** — ffmpeg y CUDA vienen vía pip.
 - 🔒 **Local y privado** — la transcripción nunca sale de tu equipo.
 - 🌍 **Multi-idioma** — autodetección o forzado (es, en, pt, fr, it, de).
@@ -113,9 +116,9 @@ Todo queda dentro de la carpeta del proyecto. **No toca tu Python del sistema.**
 ┌───────────────────────────┐  HTTP   ┌───────────────────────────────────────┐
 │ Subir / Grabar → progreso  │ ─────▶  │ ffmpeg → faster-whisper → segments      │
 │ (SSE en vivo) → resultado  │ ◀─SSE─  │ (16kHz mono)   (CTranslate2)            │
-│ → chat IA                  │         │ chat → OpenAI/Gemini (tu key)           │
+│ → chat IA local            │         │ chat → modelo local (llama.cpp)         │
 └───────────────────────────┘         └───────────────────────────────────────┘
-       (todo local salvo el chat IA y la descarga inicial del modelo)
+       (todo local; solo se descargan los modelos la primera vez)
 ```
 
 1. Eliges la entrada: **subes** un archivo (≤ 2 GB) o pegas una ruta local (sin
@@ -176,20 +179,20 @@ consumen una parte, y respetarla evita que el equipo se ahogue.
 
 ---
 
-## 🤖 Análisis con IA
+## 🤖 Análisis con IA (100% local)
 
-Tras transcribir, aparece el panel **"Analiza con IA"**:
+Tras transcribir, aparece el panel **"Analiza con IA"**. Corre **en tu propio
+equipo** con un modelo pequeño pero potente (Qwen/Llama vía llama.cpp), elegido
+automáticamente según tu hardware (GPU si la hay, si no CPU):
 
-1. Elige proveedor: **OpenAI** o **Google Gemini** (capa gratis generosa).
-2. Pega tu **API key** (se queda solo en memoria; nunca se guarda en disco).
-3. Usa los atajos (Resumen, Puntos clave, Tareas y acuerdos, Acta) o escribe tu
+1. Pulsa un atajo (Resumen, Puntos clave, Tareas y acuerdos, Acta) o escribe tu
    propia pregunta. Las respuestas **citan los minutos** `[MM:SS]`.
+2. **Sin clave y sin nube**: ni el audio ni el texto salen de tu equipo.
 
-> Consigue tu key gratis en [Google AI Studio](https://aistudio.google.com/apikey)
-> o en [OpenAI](https://platform.openai.com/api-keys).
+> La primera vez se descarga el modelo (~1–2 GB según tu equipo); luego es
+> instantáneo y funciona sin internet.
 
-¿Prefieres otra IA? Copia el texto (con o sin timestamps) y pégalo en Claude,
-ChatGPT, etc.
+¿Prefieres otra IA? Copia el texto (con o sin timestamps) y pégalo donde quieras.
 
 ---
 
@@ -201,10 +204,14 @@ ChatGPT, etc.
 | Detección de reunión      | ❌ (lee del registro qué app usa el micrófono)         |
 | Grabación (mic / sistema) | ❌ (soundcard local; el WAV se queda en tu equipo)     |
 | Conversión + transcripción| ❌ (local; el modelo solo se descarga la 1ª vez)       |
-| **Chat con IA**           | ✅ Envía el **texto** de la transcripción al proveedor  |
-|                           | elegido con **tu** API key. El audio nunca se sube.    |
+| **Análisis con IA**       | ❌ (modelo local llama.cpp; solo se descarga la 1ª vez) |
 
-La API key vive solo en la sesión: **nunca** se escribe a disco ni a logs.
+**Nada sale de tu equipo** — ni el audio ni el texto. El análisis con IA usa un
+modelo local; el único acceso a red es la **descarga inicial** de los modelos
+(Whisper y el de IA), que luego quedan en caché.
+Las reuniones (texto, notas y una copia comprimida del audio para
+reescucharlas) se guardan **solo en tu disco** (`~/.audicop/`); borrar una
+reunión con 🗑 elimina también su audio.
 Sin telemetría, sin analytics, sin acceso a webcam ni portapapeles. El
 **micrófono y el audio del sistema** solo se capturan en los modos de
 **grabación**, por tu acción explícita (y consentimiento, en reuniones); el
@@ -226,7 +233,7 @@ y rechaza peticiones de orígenes externos (anti-CSRF). Detalle en
 | Errores raros al instalar / crear el `.venv` | ¿El proyecto está en **OneDrive/Dropbox/Google Drive**? El launcher te avisa. Clónalo en una ruta local (`C:\dev\audicop`) y reintenta. |
 | `ffmpeg failed to convert` | El origen está corrupto o usa un códec raro. Reconviértelo o ábrelo en VLC. |
 | `CUDA out of memory` | Abre **Modo avanzado** y baja de modelo (`medium`/`small`). |
-| El chat IA dice "no está instalado" | Reinstala dependencias: `uv sync` (las libs de IA vienen incluidas). |
+| El chat IA local no está disponible | Relanza `start.cmd`/`start.sh`: instala el modelo local (`llama-cpp-python`) según tu hardware (CUDA si hay GPU, si no CPU). Si tienes poca RAM libre y sin GPU, cierra apps y recarga. |
 | La reunión no capta a los demás | El loopback graba lo que suena por tus **altavoces**. Con auriculares Bluetooth o salidas raras puede no capturarse; usa los altavoces del equipo. |
 | Me silencié en Meet pero igual me grabó | El micrófono se graba a nivel del sistema; silenciarte en la app no lo detiene. Usa **Pausar** o desmarca "Incluir mi micrófono". |
 | "Este equipo no tiene captura de audio disponible" | No hay dispositivos de audio (o reiniciaste el server con código viejo). Reinicia con `start.cmd`/`start.sh`. |
@@ -244,7 +251,7 @@ y rechaza peticiones de orígenes externos (anti-CSRF). Detalle en
 | Grabación       | soundcard (mic + loopback del sistema, BSD-3, sin torch)|
 | Hardware        | psutil + nvidia-smi                                     |
 | GPU (opcional)  | nvidia-cublas-cu12 + nvidia-cudnn-cu12                  |
-| IA              | openai + google-genai (bring-your-own-key)              |
+| IA (análisis)   | llama-cpp-python (modelo local GGUF; sin nube, sin clave)|
 | Tooling         | uv · ruff · mypy · pytest                               |
 
 Créditos: [faster-whisper](https://github.com/SYSTRAN/faster-whisper),
@@ -258,12 +265,12 @@ Créditos: [faster-whisper](https://github.com/SYSTRAN/faster-whisper),
 - [x] Autodetección de hardware + recomendación por memoria libre.
 - [x] Fallback de descarga sin symlinks (Windows restringido).
 - [x] Timestamps estilo YouTube + export SRT/VTT.
-- [x] Chat / análisis con IA (OpenAI/Gemini, BYO key).
+- [x] Análisis con IA **100% local** (llama.cpp + Qwen/Llama, elegido por hardware).
 - [x] `large-v3-turbo` + batched (GPU) + pista de vocabulario.
 - [x] Grabación local: tu voz y reuniones (mic + audio del sistema).
 - [ ] Diarización (separar hablantes): "Tú vs los demás" + sherpa-onnx.
 - [ ] Proceso por lotes (varias carpetas).
-- [ ] Más proveedores IA (Anthropic, modelos locales vía Ollama).
+- [ ] Resumen map-reduce para audios largos (que exceden el contexto del modelo).
 
 Issues y PRs bienvenidos. Convenciones del proyecto en [AGENTS.md](AGENTS.md)
 y [DESIGN.md](DESIGN.md).

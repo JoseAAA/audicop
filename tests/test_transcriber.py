@@ -133,6 +133,33 @@ def test_transcribe_passes_options(
     assert kwargs["task"] == "translate"
     assert kwargs["beam_size"] == 3
     assert kwargs["vad_filter"] is False
+    assert kwargs["vad_parameters"] is None  # no VAD → no tuned options
+
+
+def test_transcribe_passes_tuned_vad_and_no_speech(
+    tmp_path: Path,
+    fake_segments: list[SimpleNamespace],
+    fake_info: SimpleNamespace,
+) -> None:
+    """With VAD on, the tuned Silero options and no-speech gate are forwarded."""
+    from app.core import config
+
+    fake_model = MagicMock()
+    fake_model.transcribe.return_value = (iter(fake_segments), fake_info)
+
+    with patch.object(transcriber, "WhisperModel", return_value=fake_model):
+        t = Transcriber(model_size="tiny", compute_type="int8", device="cpu")
+        t.transcribe(_wav_path(tmp_path), vad_filter=True)
+
+    kwargs = fake_model.transcribe.call_args.kwargs
+    vad = kwargs["vad_parameters"]
+    assert vad is not None
+    assert vad.threshold == config.VAD_THRESHOLD
+    assert vad.neg_threshold == config.VAD_NEG_THRESHOLD
+    assert vad.min_speech_duration_ms == config.VAD_MIN_SPEECH_MS
+    assert vad.min_silence_duration_ms == config.VAD_MIN_SILENCE_MS
+    assert vad.speech_pad_ms == config.VAD_SPEECH_PAD_MS
+    assert kwargs["no_speech_threshold"] == config.NO_SPEECH_THRESHOLD
 
 
 def test_transcribe_missing_file(tmp_path: Path) -> None:

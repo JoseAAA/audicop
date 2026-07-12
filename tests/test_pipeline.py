@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.adapters.transcriber import TranscriptSegment
 from app.services import pipeline
 from app.services.pipeline import TranscriptionSettings, get_transcriber, iter_transcription
@@ -32,6 +34,9 @@ def test_get_transcriber_caches(monkeypatch) -> None:
             built.append(kw)
 
         def load(self) -> None:
+            pass
+
+        def unload(self) -> None:
             pass
 
     monkeypatch.setattr(pipeline, "Transcriber", FakeT)
@@ -90,6 +95,68 @@ def test_iter_transcription_emits_event_sequence(tmp_path: Path) -> None:
 
     # the wav's parent dir was cleaned up
     assert cleanup_calls == [wav.parent]
+
+
+def test_whisper_released_after_run_and_llm_released_before(tmp_path: Path) -> None:
+    """Memory handoff: the LLM is freed before Whisper loads, and every cached
+    Whisper model is unloaded once the run ends (phases never share memory)."""
+    src = tmp_path / "in.mp3"
+    src.write_bytes(b"fake")
+    wav = tmp_path / "work" / "in.wav"
+    wav.parent.mkdir()
+    wav.write_bytes(b"fakewav")
+
+    fake_info = SimpleNamespace(language="es", language_probability=0.99, duration=4.0)
+    fake_transcriber = MagicMock()
+    fake_transcriber.transcribe.return_value = (
+        iter([TranscriptSegment(start=0.0, end=2.0, text="Hola")]),
+        fake_info,
+    )
+
+    cached = MagicMock()  # pretend a Whisper model is resident from this run
+    pipeline._TRANSCRIBER_CACHE.clear()
+    pipeline._TRANSCRIBER_CACHE[("tiny", "int8", "cpu")] = cached
+
+    with (
+        patch.object(pipeline, "to_wav_16k", return_value=wav),
+        patch.object(pipeline, "get_duration_seconds", return_value=4.0),
+        patch.object(pipeline, "get_transcriber", return_value=fake_transcriber),
+        patch.object(pipeline, "cleanup"),
+        patch.object(pipeline.local_llm, "unload_active") as unload_llm,
+    ):
+        list(iter_transcription(src, _settings()))
+
+    unload_llm.assert_called_once()  # LLM freed before Whisper loaded
+    cached.unload.assert_called_once()  # Whisper freed when the run ended
+    assert pipeline._TRANSCRIBER_CACHE == {}
+
+
+def test_whisper_released_even_on_error(tmp_path: Path) -> None:
+    """The release also happens when decoding raises (finally path)."""
+    src = tmp_path / "in.mp3"
+    src.write_bytes(b"fake")
+    wav = tmp_path / "work" / "in.wav"
+    wav.parent.mkdir()
+    wav.write_bytes(b"fakewav")
+
+    fake_transcriber = MagicMock()
+    fake_transcriber.transcribe.side_effect = RuntimeError("boom")
+    cached = MagicMock()
+    pipeline._TRANSCRIBER_CACHE.clear()
+    pipeline._TRANSCRIBER_CACHE[("tiny", "int8", "cpu")] = cached
+
+    with (
+        patch.object(pipeline, "to_wav_16k", return_value=wav),
+        patch.object(pipeline, "get_duration_seconds", return_value=4.0),
+        patch.object(pipeline, "get_transcriber", return_value=fake_transcriber),
+        patch.object(pipeline, "cleanup"),
+        patch.object(pipeline.local_llm, "unload_active"),
+        pytest.raises(RuntimeError),
+    ):
+        list(iter_transcription(src, _settings()))
+
+    cached.unload.assert_called_once()
+    assert pipeline._TRANSCRIBER_CACHE == {}
 
 
 def test_iter_transcription_cleans_up_on_error(tmp_path: Path) -> None:

@@ -1,4 +1,4 @@
-# 🎨 Sistema de diseño — Audicop "Slate"
+# 🎨 Sistema de diseño — Audicop "Studio" (claro)
 
 > Fuente de verdad visual del proyecto. Antes de tocar la UI, lee esto.
 > El frontend es **HTML/CSS/JS vanilla** servido por FastAPI — sin frameworks,
@@ -9,38 +9,41 @@
 
 ## 1. Filosofía
 
-Audicop lo usa gente técnica y **no técnica**. El diseño prioriza, en orden:
+Audicop lo usa gente técnica y **no técnica**. El diseño (inspirado en apps de
+reuniones tipo Meetily) prioriza, en orden:
 
-1. **Guía por pasos.** La pantalla acompaña: 1 Sube → 2 Transcribe → 3 Resultado
-   → 4 IA. Cada paso se habilita cuando toca; nada abruma de golpe.
-2. **Calma.** Fondo oscuro slate, sin ruido, un solo color de acción.
+1. **Biblioteca primero.** Sidebar con tus reuniones (buscar, reabrir, borrar);
+   la pantalla principal es la reunión activa: **Notas ⟷ Transcripción**.
+2. **Calma.** Superficies blancas, bordes suaves, un color de acción (azul) y
+   el rojo reservado a "grabando".
 3. **Lenguaje humano.** Nada de jerga (`int8_float16`, `cuda`) en primer plano;
    lo técnico va plegado.
-4. **Honestidad.** Si algo sale a la nube (chat IA), se dice. Si va a tardar, se estima.
+4. **Honestidad.** Nada sale a la nube — y se dice. Lo que se guarda en disco
+   (reuniones) se dice y se puede borrar. Si algo tarda, se avisa y se estima.
 
 ---
 
 ## 2. Tokens de color (CSS variables)
 
-Definidos en `:root` de `frontend/styles.css`. Tema oscuro "Slate".
+Definidos en `:root` de `frontend/styles.css`. Tema claro "Studio".
 
-| Variable             | Valor       | Uso                                        |
-|----------------------|-------------|--------------------------------------------|
-| `--primary`          | `#2563eb`   | Único acento de acción (botones, foco)     |
-| `--primary-hover`    | `#1d4ed8`   | Hover del primario                         |
-| `--bg`               | `#0f172a`   | Lienzo principal (slate-900)               |
-| `--surface`          | `#1e293b`   | Tarjetas, inputs (slate-800)               |
-| `--surface-raised`   | `#334155`   | Hover, dropdowns (slate-700)               |
-| `--text`             | `#f8fafc`   | Texto principal                            |
-| `--text-2`           | `#cbd5e1`   | Secundario / descripciones                 |
-| `--text-muted`       | `#94a3b8`   | Etiquetas de bajo contraste                |
-| `--border`           | `#334155`   | Divisores estándar                         |
-| `--success`          | `#10b981`   | Estado positivo                            |
-| `--warning`          | `#f59e0b`   | Aviso (privacidad, descarga, audio largo)  |
-| `--danger`           | `#f43f5e`   | Error                                       |
+| Variable          | Valor     | Uso                                          |
+|-------------------|-----------|----------------------------------------------|
+| `--primary`       | `#2563eb` | Único acento de acción (botones, enlaces, [MM:SS]) |
+| `--primary-soft`  | `#eff6ff` | Fondos suaves del primario (hover, selección) |
+| `--bg`            | `#f6f7f8` | Lienzo de la app                              |
+| `--surface`       | `#ffffff` | Tarjetas, sidebar, inputs                     |
+| `--surface-2`     | `#f3f4f6` | Fondos secundarios (pestañas, search)         |
+| `--text`          | `#111827` | Texto principal                               |
+| `--text-2`        | `#6b7280` | Secundario / metadatos                        |
+| `--border`        | `#e5e7eb` | Divisores estándar                            |
+| `--rec`           | `#ef4444` | SOLO grabación (botón, punto pulsante)        |
+| `--success`       | `#059669` | Estado positivo (GPU lista, privacidad)       |
+| `--warning`       | `#b45309` | Avisos                                        |
+| `--danger`        | `#dc2626` | Errores y borrar                              |
 
-**Regla:** el azul `#2563eb` es el **único** color de marca. No introducir
-segundos acentos decorativos. Rebrandear = cambiar solo estas variables.
+**Regla:** el azul es el único color de marca; el rojo significa exclusivamente
+"grabando/borrar". Rebrandear = cambiar solo estas variables.
 
 ---
 
@@ -49,56 +52,55 @@ segundos acentos decorativos. Rebrandear = cambiar solo estas variables.
 - Una sola familia: `Inter, system-ui, ...` (la del sistema; sin webfont externa
   para no depender de la red). Sin segundas tipografías.
 - Jerarquía: `h1` (28px/700) título · `h2` (18px/700) paso · cuerpo 15px/400 ·
-  `.muted` para metadatos. Pesos < 400 prohibidos (ilegibles en oscuro).
+  `.muted` para metadatos. Pesos < 400 prohibidos (pierden legibilidad).
 - Datos crudos (timestamps, salida) en `monospace`.
 
 ---
 
-## 4. Layout
+## 4. Layout (sidebar + vistas)
 
 ```
-┌───────────────────────────────────────────────┐
-│ 🎙️ Audicop  +  tagline                          │
-│ ✅ banner de estado (1 línea) + detalles plegados│
-│                                                 │
-│ ┌─ Paso 1 · Tu audio ────────────────────────┐ │
-│ │  [Subir | Grabar mi voz | Grabar reunión]   │ │
-│ │  dropzone · o grabar (consentimiento+clic)  │ │
-│ └─────────────────────────────────────────────┘ │
-│ ┌─ Paso 2 · Transcribe (se habilita) ────────┐ │
-│ │  ⚙️ opciones (plegado)   [ ▶ Transcribir ]   │ │
-│ │  barra de progreso + texto en vivo          │ │
-│ └─────────────────────────────────────────────┘ │
-│ ┌─ Paso 3 · Resultado ───────────────────────┐ │
-│ │  [Texto | Tiempos | Exportar]               │ │
-│ └─────────────────────────────────────────────┘ │
-│ ┌─ Paso 4 · Analiza con IA (opcional) ───────┐ │
-│ │  proveedor·modelo·key  atajos  chat          │ │
-│ └─────────────────────────────────────────────┘ │
-│ 🔒 Privacidad (plegado)                          │
-└───────────────────────────────────────────────┘
+┌─ sidebar (290px) ──────┬─ main ─────────────────────────────────────┐
+│ 🎙️ Audicop             │  VISTA "new" (por defecto)                  │
+│ [＋ Nueva transcripción]│   ¿Qué transcribimos hoy?                   │
+│ 🔎 Buscar reuniones…    │   [Subir | Grabar mi voz | Grabar reunión]  │
+│ ─ Hoy ─                │   dropzone · ⚙️ opciones · ▶ Transcribir     │
+│  • Sprint planning     │   progreso + texto en vivo                  │
+│  • Llamada cliente 📝  │  ───────────────────────────────────────── │
+│ ─ Ayer ─               │  VISTA "meeting" (al abrir/terminar)        │
+│  • Nota de voz         │   [título editable]        meta   🗑        │
+│                        │   (● Notas | Transcripción)  ← segmented    │
+│ ✅ chip hardware        │   Notas: 🔒 pill · atajos IA · chat · nota   │
+│ ⚙️/🔒 details plegados  │   Transcripción: [Texto|Tiempos|Exportar]   │
+└────────────────────────┴────────────────────────────────────────────┘
+          (grabando → píldora flotante inferior: ● 00:42 ⏸ ⏹)
 ```
 
-- Columna central centrada, `max-width: 760px` (no se estira en monitores anchos).
-- Cada paso es una **tarjeta** (`.step`). Los pasos no disponibles van con
-  `.is-disabled` (atenuados, sin interacción) hasta que el anterior se completa.
+- Dos vistas en `main`: `#view-new` y `#view-meeting` (`showView()` en `app.js`).
+- La biblioteca (sidebar) agrupa por fecha (Hoy/Ayer/…), busca contra título,
+  transcripción y notas, y marca 📝 si la reunión tiene nota guardada.
+- Grabando, la píldora `.rec-bar` flota abajo-centro sobre cualquier vista.
 
 ---
 
 ## 5. Componentes (clases en `styles.css`)
 
-- **Banner de estado** (`.banner`): una línea — dónde corre, qué modelo, cuánto
-  tarda. Verde (`--ok`) con GPU, neutro con CPU. Detalle técnico en `<details>`.
-- **Pasos** (`.step`, `.step__num`): tarjeta numerada; `.is-disabled` hasta su turno.
-- **Pestañas** (`.tab` / `.tab-panel`): entrada (Subir/Local) y resultado
+- **Sidebar** (`.sidebar`, `.meeting-item`, `.meetings__group`): biblioteca de
+  reuniones; activa con fondo `--primary-soft`.
+- **Chip de estado** (`.banner`): compacto en el pie del sidebar — dónde corre y
+  qué modelo. Verde con GPU. Detalle técnico en `<details>`.
+- **Segmented** (`.seg`/`.seg__btn`): alterna Notas ⟷ Transcripción.
+- **Pestañas** (`.tab` / `.tab-panel`): entrada (Subir/Grabar) y transcripción
   (Texto/Tiempos/Exportar). Controladas por `wireTabs()` en `app.js`.
 - **Dropzone** (`.dropzone`): arrastrar o clic; resalta en `dragover`.
-- **Botones**: `.btn--primary` (azul, acción principal), `.btn--ghost`
-  (secundario), `.quick-btn` (atajos de IA, pill).
+- **Botones**: `.btn--primary` (azul, acción), `.btn--rec` (rojo, SOLO grabar),
+  `.btn--ghost` (secundario), `.quick-btn` (atajos IA, pill), `.icon-btn` (🗑).
 - **Progreso** (`.progress`, `.live-text`): barra + texto en vivo durante el decode.
-- **Alertas**: `.alert--error`, `.alert--warn` (privacidad), `.alert--info`.
-- **Chat** (`.bubble--user` / `.bubble--assistant`): burbujas; respuesta en streaming.
-- **Toast** (`.toast`): confirmaciones efímeras ("Copiado", "Descargando modelo").
+- **Alertas y pills**: `.alert--error/--warn/--ok`, `.pill--ok` (privacidad IA).
+- **Chat/Notas** (`.bubble--user`/`--assistant`, `.note-toolbar`): burbujas con
+  streaming; la última respuesta es "la nota" (se autoguarda, copia y exporta).
+- **Barra de grabación** (`.rec-bar`): píldora flotante con punto pulsante.
+- **Toast** (`.toast`): confirmaciones efímeras ("Copiado", "Reunión borrada").
 
 ---
 

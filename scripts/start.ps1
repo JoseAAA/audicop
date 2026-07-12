@@ -77,9 +77,14 @@ Write-Host "==> uv: $(& $UvExe @UvArgs --version)"
 # timeout is easy to exceed behind a proxy.
 if (-not $env:UV_HTTP_TIMEOUT) { $env:UV_HTTP_TIMEOUT = "300" }
 
-$SyncArgs = @("sync")
-if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-    Write-Host "==> GPU NVIDIA detectada -- instalando soporte CUDA (cuBLAS + cuDNN)"
+# Detect the GPU once: it decides both the CUDA extra and which llama.cpp wheel.
+$HasGpu = [bool](Get-Command nvidia-smi -ErrorAction SilentlyContinue)
+
+# `--inexact` so the launcher-managed llama-cpp-python (installed just below,
+# deliberately NOT in the lock) survives the sync instead of being pruned.
+$SyncArgs = @("sync", "--inexact")
+if ($HasGpu) {
+    Write-Host "==> GPU NVIDIA detectada -- soporte CUDA (cuBLAS + cuDNN + runtime)"
     $SyncArgs += @("--extra", "cuda")
 } else {
     Write-Host "==> Sin GPU NVIDIA -- instalacion CPU-only"
@@ -92,10 +97,31 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# Local, on-device AI (llama.cpp). No universal wheel exists -- CPU and CUDA are
+# different builds on a separate index -- so install the one matching this
+# machine. Idempotent: uv audits and skips once present. Non-fatal on failure:
+# only the local AI chat needs it; the rest of Audicop runs regardless.
+if ($HasGpu) {
+    $LlamaIndex = "https://abetlen.github.io/llama-cpp-python/whl/cu124"
+    Write-Host "==> Modo local (IA privada): instalando llama-cpp-python (CUDA)"
+} else {
+    $LlamaIndex = "https://abetlen.github.io/llama-cpp-python/whl/cpu"
+    Write-Host "==> Modo local (IA privada): instalando llama-cpp-python (CPU)"
+}
+# Pinned to the tested release: reproducible installs and no surprise upgrades
+# from the wheel index. Bump deliberately (test CPU + CUDA) when upgrading.
+& $UvExe @UvArgs pip install --no-build --extra-index-url $LlamaIndex "llama-cpp-python==0.3.32"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ADVERTENCIA: no se pudo instalar el modo local (llama-cpp-python)." -ForegroundColor Yellow
+    Write-Host "  El resto de Audicop funciona; el chat IA local no estara disponible." -ForegroundColor Yellow
+}
+
 # Open the browser shortly after the server comes up.
 Start-Job -ArgumentList $Url -ScriptBlock {
     param($u) Start-Sleep -Seconds 3; Start-Process $u
 } | Out-Null
 
 Write-Host "==> Lanzando Audicop en $Url"
-& $UvExe @UvArgs run uvicorn app.main:app --host 127.0.0.1 --port $Port
+# --no-sync: we already synced above; this also stops `uv run` from pruning the
+# launcher-installed llama-cpp-python (it's not in the lock).
+& $UvExe @UvArgs run --no-sync uvicorn app.main:app --host 127.0.0.1 --port $Port

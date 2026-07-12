@@ -50,6 +50,9 @@ _ACTION_FILES: tuple[tuple[str, str], ...] = (
     ("🔑 Puntos clave", "key_points.md"),
     ("✅ Tareas y acuerdos", "tasks.md"),
     ("🗒️ Acta de reunión", "minutes.md"),
+    ("🧍 Daily standup", "standup.md"),
+    ("🔄 Retrospectiva", "retro.md"),
+    ("📞 Llamada con cliente", "sales_call.md"),
 )
 
 QUICK_ACTIONS: tuple[QuickAction, ...] = tuple(

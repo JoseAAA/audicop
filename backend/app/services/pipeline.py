@@ -28,9 +28,11 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.adapters import local_llm
 from app.adapters.audio import cleanup, get_duration_seconds, to_wav_16k
 from app.adapters.transcriber import Transcriber
 from app.core import config
+from app.services.formatting import collapse_repetitions
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +83,23 @@ def get_transcriber(model_size: str, compute_type: str, device: str) -> Transcri
     return transcriber
 
 
+def release_transcribers() -> None:
+    """Unload every cached Whisper model and clear the cache.
+
+    Audicop's phases are sequential — transcribe first, analyze after — and
+    both models are multi-GB, so they must never sit in memory together.
+    Called when a transcription run ends: from that point the memory belongs
+    to the local LLM. The next transcription reloads Whisper from the on-disk
+    cache (a few seconds), a fair price for fitting on modest machines.
+    """
+    if not _TRANSCRIBER_CACHE:
+        return
+    for transcriber in _TRANSCRIBER_CACHE.values():
+        transcriber.unload()
+    _TRANSCRIBER_CACHE.clear()
+    logger.info("Whisper liberado: la memoria queda disponible para el LLM local.")
+
+
 def iter_transcription(
     media_path: Path, settings: TranscriptionSettings
 ) -> Iterator[dict[str, object]]:
@@ -109,13 +128,20 @@ def iter_transcription(
         yield {"type": "meta", "duration": duration, "estimated_seconds": estimated}
 
         yield {"type": "status", "label": "Cargando modelo…"}
+        # Symmetric memory handoff: if the analysis LLM is loaded, free it
+        # first — Whisper is about to need that memory (phases never overlap).
+        local_llm.unload_active()
         transcriber = get_transcriber(settings.model_size, settings.compute_type, settings.device)
 
         yield {"type": "status", "label": "Transcribiendo…"}
+        # Beam width per device: wide beam is ~free on GPU but multiplies CPU
+        # wall time for little gain (see config.BEAM_SIZE_CPU).
+        beam_size = config.DEFAULT_BEAM_SIZE if settings.device == "cuda" else config.BEAM_SIZE_CPU
         segments_iter, info = transcriber.transcribe(
             wav_path,
             language=settings.language,
             task=settings.task,
+            beam_size=beam_size,
             vad_filter=settings.vad_filter,
             initial_prompt=settings.initial_prompt,
         )
@@ -132,7 +158,9 @@ def iter_transcription(
                 "type": "segment",
                 "start": seg.start,
                 "end": seg.end,
-                "text": seg.text,
+                # Collapse Whisper's hallucinated repetition loops before the
+                # text reaches the UI / store / LLM context.
+                "text": collapse_repetitions(seg.text),
                 "pct": pct,
                 "elapsed": elapsed,
                 "eta": eta,
@@ -143,7 +171,14 @@ def iter_transcription(
             "language": info.language,
             "language_probability": info.language_probability,
             "duration": effective_duration,
+            # Internal: lets the API worker copy the audio into the meetings
+            # library BEFORE the finally-cleanup deletes it. Stripped from the
+            # event before it reaches the browser.
+            "wav_path": str(wav_path),
         }
     finally:
         if wav_path is not None:
             cleanup(wav_path.parent)
+        # Whisper's job is done (success, error or abandoned stream): release
+        # it so the analysis phase gets the memory.
+        release_transcribers()

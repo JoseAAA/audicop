@@ -79,3 +79,6 @@ dmypy.json
 
 # Audicop runtime
 .cache/
+
+# Reference repo (analysis only, not ours)
+meeting-minutes/

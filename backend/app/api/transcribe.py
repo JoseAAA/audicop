@@ -21,16 +21,28 @@ from typing import Any
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from app.adapters.audio import cleanup
+from app.adapters.audio import cleanup, save_compressed_copy
 from app.adapters.transcriber import is_model_cached
 from app.core import config
+from app.services import meeting_store, transcript_store
+from app.services.formatting import to_timestamped_text
 from app.services.pipeline import TranscriptionSettings, iter_transcription
+from app.services.transcript_store import StoredSegment, StoredTranscript
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["transcribe"])
 
 _DONE = object()  # sentinel: no more events for a job
+
+
+def _to_timestamped(segments: list[StoredSegment]) -> str:
+    """Render stored segments as ``[MM:SS] text`` lines.
+
+    ``StoredSegment`` duck-types ``TranscriptSegment`` (same ``start``/``text``
+    fields), so the canonical formatter is reused as-is.
+    """
+    return to_timestamped_text(segments)  # type: ignore[arg-type]
 
 
 @dataclass
@@ -84,8 +96,50 @@ async def _run_job(job_id: str, job: _Job) -> None:
     loop = asyncio.get_running_loop()
 
     def worker() -> None:
+        # Collect segments as they stream by; on "done", persist the finished
+        # transcript server-side so the analysis phase (and a reloaded page)
+        # can retrieve it after Whisper is unloaded.
+        segments: list[StoredSegment] = []
         try:
             for event in iter_transcription(job.source_path, job.settings):
+                if event.get("type") == "segment":
+                    segments.append(
+                        StoredSegment(
+                            start=float(event.get("start", 0.0) or 0.0),
+                            end=float(event.get("end", 0.0) or 0.0),
+                            text=str(event.get("text", "")),
+                        )
+                    )
+                elif event.get("type") == "done" and segments:
+                    transcript_store.save(
+                        StoredTranscript(
+                            segments=tuple(segments),
+                            timestamped=_to_timestamped(segments),
+                            language=str(event.get("language", "unknown")),
+                            duration=float(event.get("duration", 0.0) or 0.0),
+                            filename=job.source_path.name,
+                        )
+                    )
+                    # Also persist to the local meetings library so the user
+                    # can reopen/search it later (Meetily-style history). The
+                    # id travels in the done event so the UI can select it.
+                    meeting_id = meeting_store.save_meeting(
+                        title=job.source_path.stem,
+                        duration=float(event.get("duration", 0.0) or 0.0),
+                        language=str(event.get("language", "unknown")),
+                        segments=tuple(segments),
+                    )
+                    # Keep a listening copy of the audio with the meeting; it
+                    # must happen now, before the pipeline's cleanup deletes
+                    # the WAV. `wav_path` is internal — strip it for the UI.
+                    wav = event.get("wav_path")
+                    has_audio = bool(wav) and save_compressed_copy(
+                        Path(str(wav)), meeting_store.audio_target(meeting_id)
+                    )
+                    event = {k: v for k, v in event.items() if k != "wav_path"} | {
+                        "meeting_id": meeting_id,
+                        "has_audio": has_audio,
+                    }
                 loop.call_soon_threadsafe(job.queue.put_nowait, event)
         except FileNotFoundError as exc:
             loop.call_soon_threadsafe(

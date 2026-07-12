@@ -279,6 +279,7 @@ class _SourceThread(threading.Thread):
         stop_event: threading.Event,
         pause_event: threading.Event,
         label: str,
+        live_sink: Callable[[str, Any], None] | None = None,
     ) -> None:
         """Initialize the capture thread (daemonized so it never blocks exit)."""
         super().__init__(daemon=True, name=f"audicop-capture-{label}")
@@ -289,6 +290,7 @@ class _SourceThread(threading.Thread):
         self._stop_event = stop_event
         self._pause_event = pause_event
         self.label = label
+        self._live_sink = live_sink
         self.error: str | None = None
         self._ready = threading.Event()
 
@@ -317,6 +319,13 @@ class _SourceThread(threading.Thread):
                         block = rec.record(numframes=config.RECORD_BLOCK_FRAMES)
                         if not self._pause_event.is_set():
                             wf.writeframes(_float_block_to_int16_bytes(block))
+                            if self._live_sink is not None:
+                                # Feed the live-transcription tap. It must never
+                                # break capture: recording is the primary job.
+                                try:
+                                    self._live_sink(self.label, np.asarray(block).copy())
+                                except Exception:
+                                    logger.debug("live sink failed", exc_info=True)
         except Exception as exc:
             self.error = str(exc)
             logger.exception("Capture thread %s failed", self.label)
@@ -337,13 +346,23 @@ class Recorder:
     single-use. Recreate it for a new recording.
     """
 
-    def __init__(self, *, include_mic: bool, include_loopback: bool, out_dir: Path) -> None:
+    def __init__(
+        self,
+        *,
+        include_mic: bool,
+        include_loopback: bool,
+        out_dir: Path,
+        live_sink: Callable[[str, Any], None] | None = None,
+    ) -> None:
         """Configure which sources to capture and where to write them.
 
         Args:
             include_mic: Capture the default microphone ("you").
             include_loopback: Capture the speaker loopback ("the others").
             out_dir: Directory for the per-source and mixed WAV files.
+            live_sink: Optional ``(track_label, float_block)`` callback fed
+                with every persisted block, for live transcription. Best
+                effort: its failures never affect the recording itself.
 
         Raises:
             CaptureError: If neither source is requested.
@@ -353,11 +372,22 @@ class Recorder:
         self._include_mic = include_mic
         self._include_loopback = include_loopback
         self._out_dir = out_dir
+        self._live_sink = live_sink
         self._stop = threading.Event()
         self._pause = threading.Event()
         self._threads: list[_SourceThread] = []
         self._mic_path: Path | None = None
         self._others_path: Path | None = None
+
+    @property
+    def track_labels(self) -> tuple[str, ...]:
+        """Labels of the tracks this recorder captures (feeds the live tap)."""
+        labels: list[str] = []
+        if self._include_loopback:
+            labels.append(_OTHERS_TRACK)
+        if self._include_mic:
+            labels.append(_MIC_TRACK)
+        return tuple(labels)
 
     def pause(self) -> None:
         """Stop persisting audio until :meth:`resume`; the paused span is dropped."""
@@ -390,13 +420,19 @@ class Recorder:
                     self._stop,
                     self._pause,
                     _OTHERS_TRACK,
+                    live_sink=self._live_sink,
                 )
             )
         if self._include_mic:
             self._mic_path = self._out_dir / "mic.wav"
             self._threads.append(
                 _SourceThread(
-                    lambda: _mic_source(sc), self._mic_path, self._stop, self._pause, _MIC_TRACK
+                    lambda: _mic_source(sc),
+                    self._mic_path,
+                    self._stop,
+                    self._pause,
+                    _MIC_TRACK,
+                    live_sink=self._live_sink,
                 )
             )
 

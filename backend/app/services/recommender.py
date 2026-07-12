@@ -123,3 +123,149 @@ def recommend(hw: HardwareInfo) -> ModelChoice:
         tier.compute_type,
     )
     return ModelChoice.from_tier(tier)
+
+
+@dataclass(frozen=True, slots=True)
+class LlmChoice:
+    """A concrete local-LLM recommendation produced by :func:`recommend_llm`.
+
+    Attributes:
+        available: ``True`` if a local model fits; ``False`` means the caller
+            should fall back to a cloud provider (or "copy the text").
+        model_key: Key into :data:`app.core.config.LLM_MODELS` (``""`` when
+            not available).
+        repo_id: HuggingFace repo of the GGUF (``""`` when not available).
+        filename: GGUF filename (``""`` when not available).
+        label: User-facing model name (``""`` when not available).
+        device: ``"cuda"`` or ``"cpu"``.
+        n_gpu_layers: Layers to offload to GPU (``-1`` = all, ``0`` = CPU only).
+        n_ctx: Context window in tokens (``0`` when not available).
+        download_size_mb: Approximate first-run download size in MB.
+        rationale: Spanish, user-facing explanation of the choice.
+    """
+
+    available: bool
+    model_key: str
+    repo_id: str
+    filename: str
+    label: str
+    device: str
+    n_gpu_layers: int
+    n_ctx: int
+    download_size_mb: int
+    rationale: str
+
+    @classmethod
+    def from_tier(cls, tier: config.LlmTier, *, n_gpu_layers: int) -> LlmChoice:
+        """Build an :class:`LlmChoice` from a tier, resolving its model spec.
+
+        A tier with an empty ``model_key`` yields an unavailable choice (the
+        UI should then offer a cloud provider).
+        """
+        if not tier.model_key:
+            return cls(
+                available=False,
+                model_key="",
+                repo_id="",
+                filename="",
+                label="",
+                device=tier.device,
+                n_gpu_layers=0,
+                n_ctx=0,
+                download_size_mb=0,
+                rationale=tier.rationale,
+            )
+        spec = config.LLM_MODELS[tier.model_key]
+        return cls(
+            available=True,
+            model_key=spec.key,
+            repo_id=spec.repo_id,
+            filename=spec.filename,
+            label=spec.label,
+            device=tier.device,
+            n_gpu_layers=n_gpu_layers,
+            n_ctx=config.LLM_DEFAULT_N_CTX,
+            download_size_mb=spec.download_size_mb,
+            rationale=tier.rationale,
+        )
+
+
+def _llm_gpu_tier(usable_vram_gb: float) -> config.LlmTier | None:
+    """Return the GPU local-LLM tier for usable VRAM, or ``None`` if too little.
+
+    ``None`` signals the caller to fall back to the CPU path rather than
+    forcing a model that would spill out of VRAM.
+    """
+    if usable_vram_gb >= config.LLM_VRAM_USABLE_HIGH_GB:
+        return config.LLM_GPU_HIGH_TIER
+    if usable_vram_gb >= config.LLM_VRAM_USABLE_MID_GB:
+        return config.LLM_GPU_MID_TIER
+    if usable_vram_gb >= config.LLM_VRAM_USABLE_LOW_GB:
+        return config.LLM_GPU_LOW_TIER
+    return None
+
+
+def _llm_cpu_tier(usable_ram_gb: float) -> config.LlmTier:
+    """Return the CPU local-LLM tier for usable RAM.
+
+    Returns :data:`config.LLM_NONE_TIER` when even the smallest model would
+    leave too little headroom.
+    """
+    if usable_ram_gb >= config.LLM_RAM_USABLE_HIGH_GB:
+        return config.LLM_CPU_HIGH_TIER
+    if usable_ram_gb >= config.LLM_RAM_USABLE_MID_GB:
+        return config.LLM_CPU_MID_TIER
+    if usable_ram_gb >= config.LLM_RAM_USABLE_LOW_GB:
+        return config.LLM_CPU_LOW_TIER
+    return config.LLM_NONE_TIER
+
+
+def recommend_llm(hw: HardwareInfo, *, gpu_offload: bool = False) -> LlmChoice:
+    """Recommend a local LLM (or a cloud fallback) for the given hardware.
+
+    Like :func:`recommend`, sizing is based on **currently free** memory; on
+    top of that we subtract an explicit reserve
+    (:data:`config.MEMORY_RESERVE_GB` / :data:`config.VRAM_RESERVE_GB`) so the
+    model never claims the last slice of memory the OS and other apps need.
+
+    The GPU path is tried first, **but only when ``gpu_offload`` is True** —
+    that flag must reflect whether the *installed* llama.cpp build can actually
+    use the GPU (see :func:`app.adapters.local_llm.supports_gpu_offload`). The
+    default CPU-only wheel can't, so even on a CUDA machine we size against RAM
+    rather than promising VRAM we cannot use. If usable VRAM is too small even
+    for the smallest GPU tier, we fall back to the CPU path, which may itself
+    return an *unavailable* choice (``available is False``), signalling the UI
+    to offer a cloud provider instead.
+
+    Note:
+        Whisper and the LLM both consume memory. Callers should size the LLM
+        *after* the transcription model has been released, ideally by
+        re-running :func:`app.adapters.hardware.detect_hardware` so the free
+        figures reflect the freed memory.
+
+    Args:
+        hw: Snapshot of the local hardware.
+        gpu_offload: Whether the installed engine can offload to the GPU.
+
+    Returns:
+        An :class:`LlmChoice`; check ``.available`` before attempting to load.
+    """
+    if gpu_offload and hw.has_cuda and hw.gpu_vram_free_gb is not None:
+        usable_vram = max(0.0, hw.gpu_vram_free_gb - config.VRAM_RESERVE_GB)
+        gpu_tier = _llm_gpu_tier(usable_vram)
+        if gpu_tier is not None:
+            logger.info(
+                "LLM GPU path: usable_vram=%.1f GB → %s",
+                usable_vram,
+                gpu_tier.model_key,
+            )
+            return LlmChoice.from_tier(gpu_tier, n_gpu_layers=-1)
+
+    usable_ram = max(0.0, hw.ram_available_gb - config.MEMORY_RESERVE_GB)
+    cpu_tier = _llm_cpu_tier(usable_ram)
+    logger.info(
+        "LLM CPU path: usable_ram=%.1f GB → %s",
+        usable_ram,
+        cpu_tier.model_key or "<none>",
+    )
+    return LlmChoice.from_tier(cpu_tier, n_gpu_layers=0)

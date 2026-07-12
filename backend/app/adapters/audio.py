@@ -140,6 +140,42 @@ def to_wav_16k(source: Path, *, dest_dir: Path | None = None) -> Path:
     return dest
 
 
+def save_compressed_copy(wav: Path, dest: Path) -> bool:
+    """Save a listening copy of ``wav`` at ``dest`` (AAC ~48 kbps in .m4a).
+
+    Used to keep each meeting's audio in the local library without WAV-sized
+    files (a 1 h WAV is ~115 MB; the AAC copy is ~20 MB). Falls back to a
+    plain WAV copy if encoding fails. Returns ``True`` when a file was saved.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        _ffmpeg_exe(),
+        "-y",
+        "-i",
+        str(wav),
+        "-c:a",
+        "aac",
+        "-b:a",
+        "48k",
+        "-loglevel",
+        "error",
+        str(dest),
+    ]
+    try:
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        if result.returncode == 0 and dest.exists():
+            return True
+        logger.warning("ffmpeg no pudo comprimir el audio (rc=%s)", result.returncode)
+    except OSError:
+        logger.warning("No se pudo ejecutar ffmpeg para comprimir", exc_info=True)
+    try:  # fallback: keep the raw WAV rather than losing the audio
+        shutil.copyfile(wav, dest.with_suffix(config.WAV_SUFFIX))
+        return True
+    except OSError:
+        logger.exception("No se pudo guardar la copia de audio")
+        return False
+
+
 def cleanup(path: Path) -> None:
     """Best-effort removal of a temporary file or directory.
 

@@ -34,9 +34,9 @@ chat IA) es valor añadido y no debe estorbar ese flujo.
    wheels PyPI. Nada de `apt`/`brew`/CUDA toolkit del sistema.
 4. **UI en español, código en inglés.** Identifiers, docstrings y comentarios en
    inglés (estándar OSS). Todo lo que ve el usuario, en español.
-5. **API keys solo en memoria.** Las keys de IA viven en la memoria del navegador
-   y se mandan por request; el backend es stateless con ellas. Nunca se escriben a
-   disco, nunca se loguean, input siempre `type="password"`.
+5. **Privacidad de extremo a extremo.** El análisis IA corre **100% local**
+   (llama.cpp). No hay proveedores cloud ni API keys: ni el audio ni el texto
+   salen del equipo.
 6. **Fácil para no-técnicos.** Si una pantalla necesita un manual, está mal
    diseñada. Lee `DESIGN.md`.
 
@@ -51,18 +51,28 @@ chat IA) es valor añadido y no debe estorbar ese flujo.
 | Grabación (mic / loopback) | No (soundcard local; el WAV se queda en el equipo) |
 | Conversión a WAV (ffmpeg)  | No (binario local empaquetado)                     |
 | Transcripción (Whisper)    | No (modelo local; solo se descarga la 1ª vez)      |
-| **Chat / análisis IA**     | **Sí** — el texto de la transcripción va al        |
-|                            | proveedor cloud elegido (OpenAI/Gemini) con la key |
-|                            | del usuario. Hay que **avisarlo antes** del 1er uso |
+| **Análisis IA (resumen/chat)** | No (modelo local llama.cpp; solo se descarga la 1ª vez) |
 
-El audio original **nunca** se sube a la nube. El chat IA solo envía el **texto**
-ya transcrito, y solo si el usuario lo usa activamente.
+**Nada sale del equipo**: ni el audio ni el texto. El análisis IA usa un modelo
+local (llama.cpp) elegido según el hardware. El único acceso a red es la
+**descarga inicial** de los modelos (Whisper y el LLM local), que luego quedan
+en caché.
+
+**Biblioteca de reuniones (disco local):** cada transcripción terminada se
+guarda con sus notas de IA en `~/.audicop/meetings.db` (SQLite) y una copia
+comprimida del audio en `~/.audicop/audio/{id}.m4a` (AAC ~48 kbps, para poder
+reescucharla al reabrir) — **todo solo en el disco del usuario**. Borrar una
+reunión desde la UI (🗑) elimina texto, notas y audio, permanente. Documentado
+en el panel de Privacidad de la UI.
 
 **Defensa local:** el servidor escucha solo en `127.0.0.1` (los launchers usan
-`--host 127.0.0.1`) y un middleware rechaza peticiones POST/PUT/DELETE cuyo
-`Origin` no sea localhost (anti-CSRF: evita que una web maliciosa que visites
-dispare `/api/record/start` u otras acciones). No hay autenticación porque es
-de un solo usuario en su propia máquina; **no exponer el puerto a la red**.
+`--host 127.0.0.1`) y dos middlewares lo protegen: (1) un guard de **Host**
+rechaza cualquier petición cuyo `Host` no sea localhost — bloquea DNS
+rebinding, que si no permitiría a una web maliciosa leer p. ej.
+`/api/transcript`; (2) un guard de **Origin** rechaza POST/PUT/DELETE de
+orígenes remotos (anti-CSRF: evita que una web dispare `/api/record/start`).
+No hay autenticación porque es de un solo usuario en su propia máquina;
+**no exponer el puerto a la red**.
 
 ---
 
@@ -77,7 +87,8 @@ backend/app/
 │   ├── transcriber.py     Wrapper de WhisperModel (turbo + batched GPU). DLL CUDA. Fallback sin symlinks.
 │   ├── capture.py         Grabación local mic + loopback (soundcard) → WAV 16k. COM aislado por hilo.
 │   ├── meeting.py         detect_active_meeting(): qué app usa el micrófono (winreg). Meet/Teams/Zoom.
-│   └── llm.py             Cliente agnóstico (OpenAI/Gemini), streaming, BYO key.
+│   ├── local_llm.py       IA local (llama.cpp): descarga+carga GGUF, streaming. 100% on-device.
+│   └── cuda_dll.py        Pone las DLLs NVIDIA en el PATH (compartido con transcriber).
 ├── services/            Lógica de negocio pura (testeable):
 │   ├── recommender.py     recommend(hw) → ModelChoice (memoria LIBRE, no total).
 │   ├── formatting.py      Segments → texto plano / timestamped / SRT / VTT.
@@ -124,12 +135,19 @@ drena al navegador. Jobs en un dict en memoria (single-user local).
 
 ## §6. Tooling y gates (deben pasar antes de commit)
 
+> **Las herramientas (ruff, mypy, pytest) viven en el extra `dev`** y
+> `llama-cpp-python` lo instala el launcher fuera del lock (§7). Un `uv run`
+> o `uv sync` "a secas" **poda ambos**: falla con *No module named pytest* o
+> desinstala el motor de IA local. Flujo correcto: sincroniza UNA vez con
+> `--inexact` y corre los gates con `--no-sync`:
+
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy backend/app/core/config.py backend/app/adapters/*.py \
+uv sync --inexact --extra dev              # 1 vez (añade --extra cuda si hay GPU)
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
+uv run --no-sync mypy backend/app/core/config.py backend/app/adapters/*.py \
             backend/app/services/*.py backend/app/prompts/__init__.py
-uv run pytest --cov            # ≥ 80% en módulos no-API
+uv run --no-sync pytest --cov              # ≥ 80% en módulos no-API
 ```
 
 - **uv** gestiona Python y dependencias. `uv.lock` es la fuente de verdad de
@@ -142,17 +160,26 @@ uv run pytest --cov            # ≥ 80% en módulos no-API
 ## §7. Dependencias
 
 Stack base: `fastapi`, `uvicorn[standard]`, `python-multipart`,
-`faster-whisper`, `imageio-ffmpeg`, `psutil`, `soundcard`, `openai`,
-`google-genai`. (`soundcard`, BSD-3, da la captura mic + loopback de los
-modos de grabación; pip-only, sin deps de sistema, sin torch.)
-(Las libs de IA van en base a propósito: `uv sync` poda lo que no esté en los
-extras activos, así que un extra opcional se desinstalaría en cada arranque y el
-chat se rompería. Son ligeras, no como torch.)
+`faster-whisper`, `imageio-ffmpeg`, `psutil`, `soundcard`. (`soundcard`, BSD-3,
+da la captura mic + loopback de los modos de grabación; pip-only, sin deps de
+sistema, sin torch.) **No hay SDKs de nube** (ni `openai` ni `google-genai`): el
+análisis IA es 100% local.
 
 Extras opcionales:
-- `cuda` = `nvidia-cublas-cu12`, `nvidia-cudnn-cu12` (el launcher las instala
-  solo si detecta `nvidia-smi`).
+- `cuda` = `nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, `nvidia-cuda-runtime-cu12`
+  (el launcher las instala solo si detecta `nvidia-smi`; el runtime aporta
+  `cudart`, que necesita tanto Whisper como la GPU de llama.cpp).
 - `dev` = `ruff`, `mypy`, `pytest`, `pytest-cov`.
+
+**IA local (`llama-cpp-python`) — la instala el LAUNCHER, no está en el lock.**
+No hay wheel universal: el build CPU y el CUDA son paquetes distintos en un
+índice aparte (`abetlen.github.io/llama-cpp-python/whl/{cpu,cu124}`) y un lock
+no puede expresar "wheel CUDA si hay GPU". Por eso `scripts/start.*` hace
+`uv sync --inexact` (para que el sync no lo pode) y luego `uv pip install` el
+wheel correcto según `nvidia-smi`, y lanza con `uv run --no-sync`.
+`adapters/local_llm.py` lo importa perezosamente (degrada con mensaje si falta)
+y `adapters/cuda_dll.py` pone las DLLs NVIDIA en el PATH (compartido con el
+transcriber) antes de importarlo.
 
 Frontend: **cero dependencias** (vanilla, sin Node/CDN).
 
@@ -160,30 +187,33 @@ Frontend: **cero dependencias** (vanilla, sin Node/CDN).
 
 ---
 
-## §8. Estrategia multi-LLM
+## §8. IA local (on-device)
 
-- Proveedores soportados: **OpenAI** y **Google Gemini**. Adaptador agnóstico en
-  `llm.py` con imports perezosos (la app arranca sin las libs instaladas).
-- Añadir un proveedor = nueva función `_stream_<provider>` + entrada en las
-  constantes; sin refactor del resto.
-- Streaming por defecto (SSE; el frontend lee el `ReadableStream`) para feedback
-  inmediato.
+- El análisis (resumen / puntos / tareas / acta + chat libre) corre **100%
+  local** con `llama.cpp` (`llama-cpp-python`). Sin nube, sin API keys.
+- `services/recommender.recommend_llm(hw, *, gpu_offload)` elige el GGUF por
+  memoria **libre** (RAM/VRAM) menos una reserva explícita, igual que Whisper.
+  `gpu_offload` (de `local_llm.supports_gpu_offload()`) indica si el motor
+  instalado puede usar la GPU; si no, dimensiona contra la RAM.
+- `adapters/local_llm.py`: descarga (1ª vez) + carga perezosa + streaming token
+  a token (SSE). Catálogo en `config.LLM_MODELS` (Qwen2.5 3B/1.5B, Llama 3.2 1B).
+- Añadir un modelo = nueva entrada en `LLM_MODELS` + (si hace falta) un tier.
 
 ---
 
 ## §9. Prohibiciones absolutas
 
 - ❌ Telemetría, analytics o "phone home" de cualquier tipo.
-- ❌ Persistir API keys a disco (salvo opt-in explícito futuro, hoy no existe).
-- ❌ Subir el audio del usuario a ninguna nube (incluido el audio grabado).
+- ❌ Mandar el audio **o el texto** a ninguna nube / servicio externo. El
+  análisis IA es 100% local; no se añaden SDKs de nube ni API keys.
 - ❌ Acceder a webcam o portapapeles.
 - ⚠️ Micrófono y audio del sistema (loopback): **solo** en los modos "Grabar
   mi voz" y "Grabar reunión", **siempre** por acción explícita del usuario
   (botón) y, para reuniones, con su consentimiento marcado. El audio grabado
   se procesa 100% local y nunca sale del equipo. Nada de captura silenciosa
   ni automática.
-- ❌ Romper el flujo local: la app debe transcribir aunque no haya internet
-  (con el modelo ya cacheado) ni API keys.
+- ❌ Romper el flujo local: con los modelos ya cacheados, la app debe
+  transcribir **y analizar** sin internet.
 - ❌ Mostrar jerga técnica cruda al usuario (ver `DESIGN.md`).
 
 ---
@@ -193,12 +223,12 @@ Frontend: **cero dependencias** (vanilla, sin Node/CDN).
 - [x] Autodetección de hardware + recomendación por memoria libre.
 - [x] Fallback de descarga sin symlinks (Windows restringido).
 - [x] Timestamps estilo YouTube + export SRT/VTT.
-- [x] Chat / análisis IA con BYO key (OpenAI/Gemini).
+- [x] Análisis IA **100% local** (llama.cpp + Qwen/Llama), elegido por hardware.
 - [x] Modelo `large-v3-turbo` + batched pipeline (GPU) + pista de vocabulario.
 - [x] Modos de grabación local: "mi voz" (mic) y "reunión" (mic + loopback).
+- [ ] Resumen map-reduce para audios largos (que exceden el contexto del modelo).
 - [ ] Diarización (separar hablantes): "Tú vs los demás" por pistas + sherpa-onnx.
 - [ ] Proceso por lotes (varios archivos / carpetas).
-- [ ] Más proveedores IA (Anthropic, modelos locales vía Ollama).
 
 ---
 

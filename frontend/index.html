@@ -3,220 +3,235 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Audicop — Transcribe audio y vídeo</title>
+    <meta name="color-scheme" content="light dark" />
+    <title>Audicop — Transcribe y analiza, 100% local</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header class="app-header">
-      <h1>🎙️ Audicop</h1>
-      <p class="tagline">Suelta cualquier audio o vídeo. Recibe el texto, con marcas de tiempo, y analízalo con IA.</p>
-    </header>
+    <div class="app">
+      <!-- ================= Sidebar: brand + meetings library ================= -->
+      <aside class="sidebar">
+        <div class="sidebar__brand">🎙️ <strong>Audicop</strong></div>
 
-    <main class="container">
-      <!-- Status banner (hardware + recommendation) -->
-      <section id="status-banner" class="banner banner--loading">
-        <span class="banner__icon">⏳</span>
-        <span class="banner__text">Detectando tu equipo…</span>
-      </section>
-      <details id="hw-details" class="details" hidden>
-        <summary>Ver detalles del sistema y por qué se eligió este modelo</summary>
-        <div id="hw-details-body" class="details__body"></div>
-      </details>
+        <button id="btn-new" class="btn btn--primary btn--block">＋ Nueva transcripción</button>
 
-      <!-- Step 1: Source (upload / record voice / record meeting) -->
-      <section class="step" id="step-upload">
-        <div class="step__head"><span class="step__num">1</span><h2>Tu audio</h2></div>
+        <input id="meeting-search" class="search" type="search"
+               placeholder="🔎 Buscar reuniones…" autocomplete="off" />
 
-        <div class="tabs">
-          <button class="tab is-active" data-tab="upload">📤 Subir</button>
-          <button class="tab" data-tab="rec-voice">🎙️ Grabar mi voz</button>
-          <button class="tab" data-tab="rec-meeting">🔴 Grabar reunión</button>
-        </div>
+        <nav id="meetings-list" class="meetings" aria-label="Reuniones guardadas"></nav>
 
-        <!-- Subir (archivo + ruta local plegada) -->
-        <div class="tab-panel is-active" data-panel="upload">
-          <label id="dropzone" class="dropzone" for="file-input">
-            <input id="file-input" type="file" hidden
-                   accept=".mp3,.wav,.m4a,.ogg,.flac,.aac,.mp4,.mkv,.mov,.avi,.webm" />
-            <span class="dropzone__icon">📤</span>
-            <span class="dropzone__title">Arrastra aquí o haz clic para elegir</span>
-            <span class="dropzone__hint" id="upload-hint">audio o vídeo · hasta 2 GB</span>
-          </label>
+        <div class="sidebar__foot">
+          <section id="status-banner" class="banner banner--loading">
+            <span class="banner__icon">⏳</span>
+            <span class="banner__text">Detectando tu equipo…</span>
+          </section>
+          <details id="hw-details" class="details" hidden>
+            <summary>⚙️ Tu equipo y modelos elegidos</summary>
+            <div id="hw-details-body" class="details__body"></div>
+          </details>
           <details class="details">
-            <summary>📁 ¿Vídeo grande (&gt; 2 GB)? Pega la ruta del archivo</summary>
+            <summary>🔒 Privacidad</summary>
             <div class="details__body">
-              <p class="muted small">Audicop lee del disco — sin subida ni límite. Funciona porque corre en tu equipo.</p>
-              <input id="path-input" class="text-input" type="text"
-                     placeholder="C:\Users\tu_usuario\Videos\reunion.mp4" />
+              <p><strong>Todo es 100% local.</strong> Ni tu audio ni el texto salen del equipo —
+              tampoco al usar la IA, que corre en tu propio ordenador. La única red es la
+              descarga inicial de los modelos (una vez).</p>
+              <p>Cada reunión (texto, notas y una copia del audio para reescucharla) se
+              guarda <strong>solo en tu disco</strong>; bórrala con 🗑 y desaparece todo.
+              El micrófono solo se usa si pulsas <strong>Grabar</strong>.</p>
+              <p>Sin telemetría, sin cuentas, sin claves.</p>
             </div>
           </details>
+          <a class="sidebar__gh" href="https://github.com/JoseAAA/audicop" target="_blank" rel="noopener">GitHub ↗</a>
         </div>
+      </aside>
 
-        <!-- Grabar mi voz (solo micrófono) -->
-        <div class="tab-panel" data-panel="rec-voice">
-          <p class="muted">Graba una nota de voz o dictado con tu micrófono. Se guarda y se transcribe en tu equipo.</p>
-          <div class="rec">
-            <button id="voice-start" class="btn btn--primary">🎙️ Empezar a grabar</button>
-            <div id="voice-live" class="rec__live" hidden>
-              <span class="rec__dot"></span>
-              <span>Grabando… <strong id="voice-time">00:00</strong></span>
-              <button id="voice-pause" class="btn btn--ghost">⏸ Pausar</button>
-              <button id="voice-stop" class="btn btn--ghost">⏹ Detener y transcribir</button>
+      <!-- ================= Main ================= -->
+      <main class="main">
+        <!-- ---------- View: new transcription ---------- -->
+        <section id="view-new" class="view">
+          <div class="view-new__inner">
+            <h1 class="hello">¿Qué transcribimos hoy?</h1>
+            <p class="muted center">Sube un audio o vídeo, graba tu voz o graba una reunión. Todo se procesa en tu equipo.</p>
+
+            <section id="step-upload">
+              <div class="tabs">
+                <button class="tab is-active" data-tab="upload">📤 Subir archivo</button>
+                <button class="tab" data-tab="rec-voice">🎙️ Grabar mi voz</button>
+                <button class="tab" data-tab="rec-meeting">🔴 Grabar reunión</button>
+              </div>
+
+              <!-- Subir -->
+              <div class="tab-panel is-active" data-panel="upload">
+                <label id="dropzone" class="dropzone" for="file-input">
+                  <input id="file-input" type="file" hidden
+                         accept=".mp3,.wav,.m4a,.ogg,.flac,.aac,.mp4,.mkv,.mov,.avi,.webm" />
+                  <span class="dropzone__icon">📤</span>
+                  <span class="dropzone__title">Arrastra aquí o haz clic para elegir</span>
+                  <span class="dropzone__hint" id="upload-hint">audio o vídeo · hasta 2 GB</span>
+                </label>
+                <details class="details">
+                  <summary>📁 ¿Vídeo grande (&gt; 2 GB)? Pega la ruta del archivo</summary>
+                  <div class="details__body">
+                    <p class="muted small">Audicop lee del disco — sin subida ni límite. Funciona porque corre en tu equipo.</p>
+                    <input id="path-input" class="text-input" type="text"
+                           placeholder="C:\Users\tu_usuario\Videos\reunion.mp4" />
+                  </div>
+                </details>
+              </div>
+
+              <!-- Grabar mi voz -->
+              <div class="tab-panel" data-panel="rec-voice">
+                <p class="muted">Graba una nota de voz o dictado con tu micrófono. Se guarda y se transcribe en tu equipo.</p>
+                <div class="rec">
+                  <button id="voice-start" class="btn btn--rec">🎙️ Empezar a grabar</button>
+                </div>
+              </div>
+
+              <!-- Grabar reunión -->
+              <div class="tab-panel" data-panel="rec-meeting">
+                <div id="meeting-detect" class="meeting-detect">Buscando una reunión activa…</div>
+                <label class="checkbox">
+                  <input id="rec-consent" type="checkbox" />
+                  Confirmo que tengo el <strong>consentimiento</strong> de los participantes para grabar
+                </label>
+                <label class="checkbox">
+                  <input id="rec-mic" type="checkbox" checked />
+                  Incluir mi micrófono (lo que tú dices)
+                </label>
+                <div class="rec">
+                  <button id="meeting-start" class="btn btn--rec" disabled>🔴 Grabar reunión</button>
+                </div>
+                <p class="muted small">Se graba lo que dicen los demás + tu micrófono, 100% en tu equipo.</p>
+                <p class="muted small">⚠️ Silenciarte en Meet/Teams <strong>no</strong> detiene la grabación — usa <strong>Pausar</strong>.</p>
+              </div>
+
+              <div id="file-chosen" class="chosen" hidden></div>
+
+              <!-- Live draft transcript while recording -->
+              <div id="rec-live-panel" class="rec-live" hidden>
+                <div class="rec-live__head">🔴 Transcripción en vivo
+                  <span class="muted small">(borrador — al detener se genera la versión final)</span>
+                </div>
+                <div id="rec-live-text" class="live-text"></div>
+              </div>
+            </section>
+
+            <section id="step-transcribe" class="is-disabled">
+              <details class="details">
+                <summary>⚙️ Opciones (idioma, acción, modo avanzado)</summary>
+                <div class="options-grid">
+                  <label>Idioma del audio <select id="opt-language"></select></label>
+                  <label>Acción <select id="opt-task"></select></label>
+                  <label class="checkbox">
+                    <input id="opt-vad" type="checkbox" checked />
+                    Saltar silencios automáticamente
+                  </label>
+                  <label class="span-2">Nombres o términos para mejorar la precisión <span class="muted">(opcional)</span>
+                    <input id="opt-vocab" class="text-input" type="text"
+                           placeholder="Ej.: Acme, Kubernetes, María Pérez, OKR" autocomplete="off" />
+                  </label>
+                </div>
+                <details class="details details--nested">
+                  <summary>🛠️ Modo avanzado (forzar modelo)</summary>
+                  <div class="options-grid">
+                    <label>Modelo <select id="opt-model"></select></label>
+                    <label>Cómputo <select id="opt-compute"></select></label>
+                    <label>Dispositivo <select id="opt-device"></select></label>
+                  </div>
+                </details>
+              </details>
+
+              <button id="btn-transcribe" class="btn btn--primary btn--block" disabled>▶ Transcribir</button>
+
+              <div id="progress-wrap" class="progress-wrap" hidden>
+                <div class="progress"><div id="progress-bar" class="progress__bar"></div></div>
+                <p id="progress-label" class="muted">Preparando…</p>
+                <div id="live-text" class="live-text"></div>
+              </div>
+              <div id="transcribe-error" class="alert alert--error" hidden></div>
+            </section>
+          </div>
+        </section>
+
+        <!-- ---------- View: meeting (notes + transcript) ---------- -->
+        <section id="view-meeting" class="view" hidden>
+          <header class="meeting-bar">
+            <input id="meeting-title" class="title-input" value="" spellcheck="false"
+                   aria-label="Título de la reunión" />
+            <span id="result-meta" class="muted small"></span>
+            <button id="btn-del-meeting" class="icon-btn" title="Borrar esta reunión">🗑</button>
+          </header>
+
+          <audio id="player" class="player" controls hidden></audio>
+
+          <div class="seg" role="tablist">
+            <button class="seg__btn is-active" data-vtab="notes">📝 Notas</button>
+            <button class="seg__btn" data-vtab="transcript">💬 Transcripción</button>
+          </div>
+
+          <!-- Notas (IA) -->
+          <div class="vpanel is-active" data-vpanel="notes" id="step-ai">
+            <div class="note-toolbar">
+              <span class="pill pill--ok" id="ai-local-note">🔒 100% local · <span id="ai-local-model"></span></span>
+              <span class="spacer"></span>
+              <button id="note-copy" class="btn btn--ghost btn--sm">📋 Copiar nota</button>
+              <button id="note-download" class="btn btn--ghost btn--sm">⬇️ .md</button>
+            </div>
+            <div class="row" id="quick-actions"></div>
+            <div id="chat-log" class="chat-log"></div>
+            <form id="chat-form" class="chat-form">
+              <input id="chat-input" class="text-input" type="text"
+                     placeholder="Pregunta lo que quieras sobre el audio…" autocomplete="off" />
+              <button class="btn btn--primary" type="submit">Enviar</button>
+            </form>
+            <p class="muted small center">Cada respuesta cita el minuto <span class="ts-example">[12:34]</span> — clic para saltar a ese momento, como en YouTube.</p>
+          </div>
+
+          <!-- Transcripción -->
+          <div class="vpanel" data-vpanel="transcript" id="step-result">
+            <div class="tabs tabs--sub">
+              <button class="tab is-active" data-rtab="plain">📄 Texto</button>
+              <button class="tab" data-rtab="ts">⏱️ Con tiempos</button>
+              <button class="tab" data-rtab="export">⬇️ Exportar</button>
+            </div>
+            <div class="tab-panel is-active" data-rpanel="plain">
+              <button class="btn btn--ghost btn--sm btn--copy" data-copy="plain">📋 Copiar</button>
+              <pre id="out-plain" class="output"></pre>
+            </div>
+            <div class="tab-panel" data-rpanel="ts">
+              <button class="btn btn--ghost btn--sm btn--copy" data-copy="ts">📋 Copiar</button>
+              <p class="muted small">Clic en un momento para saltar ahí en el audio.</p>
+              <div id="out-ts" class="ts-list"></div>
+            </div>
+            <div class="tab-panel" data-rpanel="export">
+              <p class="muted">Descarga en el formato que necesites.</p>
+              <div class="row">
+                <button class="btn btn--ghost" data-dl="txt">📄 .txt</button>
+                <button class="btn btn--ghost" data-dl="srt">🎬 .srt</button>
+                <button class="btn btn--ghost" data-dl="vtt">🌐 .vtt</button>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
+      </main>
+    </div>
 
-        <!-- Grabar reunión (loopback + micrófono) -->
-        <div class="tab-panel" data-panel="rec-meeting">
-          <div id="meeting-detect" class="meeting-detect">Buscando una reunión activa…</div>
-          <label class="checkbox">
-            <input id="rec-consent" type="checkbox" />
-            Confirmo que tengo el <strong>consentimiento</strong> de los participantes para grabar
-          </label>
-          <label class="checkbox">
-            <input id="rec-mic" type="checkbox" checked />
-            Incluir mi micrófono (lo que tú dices)
-          </label>
-          <div class="rec">
-            <button id="meeting-start" class="btn btn--primary" disabled>🔴 Grabar reunión</button>
-            <div id="meeting-live" class="rec__live" hidden>
-              <span class="rec__dot"></span>
-              <span>Grabando… <strong id="meeting-time">00:00</strong></span>
-              <button id="meeting-pause" class="btn btn--ghost">⏸ Pausar</button>
-              <button id="meeting-stop" class="btn btn--ghost">⏹ Detener y transcribir</button>
-            </div>
-          </div>
-          <p class="muted small">Se graba lo que dicen los demás + tu micrófono y se transcribe 100% en tu equipo. Nada se sube.</p>
-          <p class="muted small">⚠️ Tu micrófono se graba a nivel del sistema: <strong>silenciarte en Meet/Teams NO detiene la grabación</strong>. Usa <strong>Pausar</strong> para no grabar un momento privado.</p>
-        </div>
+    <!-- Floating recording bar (Meetily-style pill) -->
+    <div id="voice-live" class="rec-bar" hidden>
+      <span class="rec__dot"></span>
+      <span>Grabando tu voz · <strong id="voice-time">00:00</strong></span>
+      <button id="voice-pause" class="btn btn--ghost btn--sm">⏸ Pausar</button>
+      <button id="voice-stop" class="btn btn--rec btn--sm">⏹ Detener y transcribir</button>
+    </div>
+    <div id="meeting-live" class="rec-bar" hidden>
+      <span class="rec__dot"></span>
+      <span>Grabando reunión · <strong id="meeting-time">00:00</strong></span>
+      <button id="meeting-pause" class="btn btn--ghost btn--sm">⏸ Pausar</button>
+      <button id="meeting-stop" class="btn btn--rec btn--sm">⏹ Detener y transcribir</button>
+    </div>
 
-        <div id="file-chosen" class="chosen" hidden></div>
-      </section>
-
-      <!-- Step 2: Transcribe -->
-      <section class="step is-disabled" id="step-transcribe">
-        <div class="step__head"><span class="step__num">2</span><h2>Transcribe</h2></div>
-
-        <details class="details">
-          <summary>⚙️ Opciones (idioma, acción, modo avanzado)</summary>
-          <div class="options-grid">
-            <label>Idioma del audio
-              <select id="opt-language"></select>
-            </label>
-            <label>Acción
-              <select id="opt-task"></select>
-            </label>
-            <label class="checkbox">
-              <input id="opt-vad" type="checkbox" checked />
-              Saltar silencios automáticamente
-            </label>
-            <label class="span-2">Nombres o términos para mejorar la precisión <span class="muted">(opcional)</span>
-              <input id="opt-vocab" class="text-input" type="text"
-                     placeholder="Ej.: Acme, Kubernetes, María Pérez, OKR" autocomplete="off" />
-              <span class="muted small">Si tu grabación usa nombres propios, marcas o jerga, escríbelos aquí: ayudan a Whisper a escribirlos bien.</span>
-            </label>
-          </div>
-          <details class="details details--nested">
-            <summary>🛠️ Modo avanzado (forzar modelo)</summary>
-            <div class="options-grid">
-              <label>Modelo <select id="opt-model"></select></label>
-              <label>Cómputo <select id="opt-compute"></select></label>
-              <label>Dispositivo <select id="opt-device"></select></label>
-            </div>
-          </details>
-        </details>
-
-        <button id="btn-transcribe" class="btn btn--primary btn--block" disabled>
-          ▶ Transcribir
-        </button>
-
-        <div id="progress-wrap" class="progress-wrap" hidden>
-          <div class="progress"><div id="progress-bar" class="progress__bar"></div></div>
-          <p id="progress-label" class="muted">Preparando…</p>
-          <div id="live-text" class="live-text"></div>
-        </div>
-        <div id="transcribe-error" class="alert alert--error" hidden></div>
-      </section>
-
-      <!-- Step 3: Result -->
-      <section class="step is-disabled" id="step-result">
-        <div class="step__head"><span class="step__num">3</span><h2>Resultado</h2></div>
-        <p id="result-meta" class="muted"></p>
-
-        <audio id="player" class="player" controls hidden></audio>
-
-        <div class="tabs">
-          <button class="tab is-active" data-rtab="plain">📄 Texto</button>
-          <button class="tab" data-rtab="ts">⏱️ Con tiempos</button>
-          <button class="tab" data-rtab="export">⬇️ Exportar</button>
-        </div>
-
-        <div class="tab-panel is-active" data-rpanel="plain">
-          <button class="btn btn--ghost btn--copy" data-copy="plain">📋 Copiar</button>
-          <pre id="out-plain" class="output"></pre>
-        </div>
-        <div class="tab-panel" data-rpanel="ts">
-          <button class="btn btn--ghost btn--copy" data-copy="ts">📋 Copiar</button>
-          <p class="muted small">Clic en un momento para saltar ahí en el audio.</p>
-          <div id="out-ts" class="ts-list"></div>
-        </div>
-        <div class="tab-panel" data-rpanel="export">
-          <p class="muted">Descarga en el formato que necesites.</p>
-          <div class="row">
-            <button class="btn btn--ghost" data-dl="txt">📄 .txt</button>
-            <button class="btn btn--ghost" data-dl="srt">🎬 .srt</button>
-            <button class="btn btn--ghost" data-dl="vtt">🌐 .vtt</button>
-          </div>
-        </div>
-      </section>
-
-      <!-- Step 4: AI -->
-      <section class="step is-disabled" id="step-ai">
-        <div class="step__head"><span class="step__num">4</span><h2>Analiza con IA <span class="optional">(opcional)</span></h2></div>
-        <p class="muted">Resume, saca tareas o pregunta lo que quieras. Usa tu propia API key (gratis en Gemini).</p>
-
-        <div class="options-grid">
-          <label>Proveedor <select id="ai-provider"></select></label>
-          <label>Modelo <select id="ai-model"></select></label>
-          <label>API key
-            <input id="ai-key" class="text-input" type="password"
-                   placeholder="Solo en memoria; no se guarda" autocomplete="off" />
-          </label>
-        </div>
-        <p id="ai-key-help" class="muted small"></p>
-
-        <div class="alert alert--warn">
-          ⚠️ Al usar el chat, el <strong>texto</strong> de la transcripción se envía al
-          proveedor elegido con tu API key. El audio nunca sale de tu equipo.
-        </div>
-
-        <div class="row" id="quick-actions"></div>
-
-        <div id="chat-log" class="chat-log"></div>
-        <form id="chat-form" class="chat-form">
-          <input id="chat-input" class="text-input" type="text"
-                 placeholder="Pregunta sobre el audio… (cita momentos como [12:34])" autocomplete="off" />
-          <button class="btn btn--primary" type="submit">Enviar</button>
-        </form>
-      </section>
-
-      <details class="details privacy">
-        <summary>🔒 Privacidad — qué hace y qué NO hace Audicop</summary>
-        <div class="details__body">
-          <p><strong>La transcripción es 100% local.</strong> Tu audio nunca sale del equipo.
-          La única red para transcribir es la descarga inicial del modelo (una vez).</p>
-          <p><strong>El chat con IA es la excepción:</strong> envía el texto al proveedor que
-          elijas con tu API key. El audio nunca se sube; la key vive solo en memoria.</p>
-          <p>Sin telemetría, sin analytics, sin acceso a micrófono/webcam/portapapeles.</p>
-        </div>
-      </details>
-    </main>
-
-    <footer class="app-footer">
-      <span>Audicop · 100% local · <a href="https://github.com/JoseAAA/audicop" target="_blank" rel="noopener">GitHub</a></span>
-    </footer>
-
+    <button id="theme-toggle" class="theme-btn" type="button" title="Cambiar tema">🌙</button>
     <div id="toast" class="toast" hidden></div>
     <script src="/app.js"></script>
   </body>

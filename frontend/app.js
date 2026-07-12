@@ -19,9 +19,11 @@ const state = {
   meta: { language: "es", duration: 0, prob: 0 },
   baseFilename: "transcripcion",
   chosen: null, // { kind: "file"|"path", file?, path? }
-  ai: { providers: {}, models: {}, keyHelp: {} },
+  ai: { local: null },
   chatHistory: [],
   playerUrl: null,
+  meetingId: null, // id in the local meetings library (SQLite, on-disk)
+  lastAnswer: "", // last AI note, for copy/download/save
 };
 
 function toast(msg) {
@@ -118,13 +120,19 @@ function fragmentAt(sec) {
   }
   return best ? best.text.trim() : "";
 }
-const TS_RE = /\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g;
+// Matches [MM:SS], [HH:MM:SS] and ranges like [00:58–01:28] (en dash, em dash
+// or hyphen, with optional spaces). In a range each endpoint is its own
+// clickable link — same behavior as YouTube/Gemini chapter ranges.
+const TS_RE = /\[(\d{1,2}:\d{2}(?::\d{2})?)(?:\s*[–—-]\s*(\d{1,2}:\d{2}(?::\d{2})?))?\]/g;
+function tsLink(t) {
+  const sec = tsToSec(t);
+  return `<span class="ts" data-sec="${sec}" title="${escapeAttr(fragmentAt(sec))}">${t}</span>`;
+}
 function inlineMd(s) {
   s = escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  return s.replace(TS_RE, (_m, t) => {
-    const sec = tsToSec(t);
-    return `<span class="ts" data-sec="${sec}" title="${escapeAttr(fragmentAt(sec))}">[${t}]</span>`;
-  });
+  return s.replace(TS_RE, (_m, t1, t2) =>
+    t2 ? `[${tsLink(t1)}–${tsLink(t2)}]` : `[${tsLink(t1)}]`
+  );
 }
 function renderMarkdown(text) {
   const out = [];
@@ -202,10 +210,9 @@ async function loadHardware() {
   fillSelect($("opt-compute"), opt.compute_types, null, rec.compute_type);
   fillSelect($("opt-device"), ["cuda", "cpu"], LABELS.device, rec.device);
 
-  // AI options
-  state.ai = { providers: ai.provider_labels, models: ai.models_by_provider, keyHelp: ai.api_key_help };
-  fillSelect($("ai-provider"), Object.keys(ai.provider_labels), ai.provider_labels, ai.default_provider);
-  refreshAiModels();
+  // AI options — 100% local. Just show the recommended on-device model.
+  state.ai = { local: ai.local };
+  renderLocalNote();
 
   // Quick-action buttons (prompts come from the server's editable .md files)
   const qa = $("quick-actions");
@@ -215,15 +222,328 @@ async function loadHardware() {
     btn.type = "button";
     btn.className = "quick-btn";
     btn.textContent = action.label;
-    btn.addEventListener("click", () => sendChat(action.prompt));
+    // Show the friendly label in the chat; the full prompt is internal.
+    btn.addEventListener("click", () => sendChat(action.prompt, action.label));
     qa.appendChild(btn);
   }
 }
 
-function refreshAiModels() {
-  const prov = $("ai-provider").value;
-  fillSelect($("ai-model"), state.ai.models[prov] || [], null);
-  $("ai-key-help").textContent = state.ai.keyHelp[prov] || "";
+function renderLocalNote() {
+  const loc = (state.ai && state.ai.local) || {};
+  if (loc.available) {
+    const gb = Math.round((loc.download_size_mb || 0) / 100) / 10;
+    $("ai-local-model").textContent = loc.cached
+      ? loc.label
+      : `${loc.label} (1.ª vez descarga ~${gb} GB)`;
+  } else {
+    $("ai-local-model").textContent =
+      loc.rationale || "No hay un modelo local para este equipo; cierra apps y recarga.";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Theme (light ⟷ dark). CSS already honors prefers-color-scheme when no
+// explicit choice exists, so first paint is correct; here we just reflect the
+// effective theme and persist the user's toggle.
+// ---------------------------------------------------------------------------
+function currentTheme() {
+  const saved = localStorage.getItem("audicop-theme");
+  if (saved === "light" || saved === "dark") return saved;
+  return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const btn = $("theme-toggle");
+  btn.textContent = theme === "dark" ? "☀️" : "🌙"; // icon = the mode you'd switch to
+  btn.title = theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro";
+}
+function toggleTheme() {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  localStorage.setItem("audicop-theme", next);
+  applyTheme(next);
+}
+
+// ---------------------------------------------------------------------------
+// Views (new transcription ⟷ meeting) + local meetings library
+// ---------------------------------------------------------------------------
+function showView(name) {
+  $("view-new").hidden = name !== "new";
+  $("view-meeting").hidden = name !== "meeting";
+}
+
+function selectVtab(key) {
+  document.querySelectorAll("[data-vtab]").forEach((b) =>
+    b.classList.toggle("is-active", b.getAttribute("data-vtab") === key)
+  );
+  document.querySelectorAll("[data-vpanel]").forEach((p) =>
+    p.classList.toggle("is-active", p.getAttribute("data-vpanel") === key)
+  );
+}
+
+function fmtMeetingDate(iso) {
+  const d = new Date(iso);
+  const today = new Date();
+  const yest = new Date(today);
+  yest.setDate(today.getDate() - 1);
+  const same = (a, b) => a.toDateString() === b.toDateString();
+  if (same(d, today)) return "Hoy";
+  if (same(d, yest)) return "Ayer";
+  return d.toLocaleDateString("es", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+async function loadMeetings(query) {
+  let data;
+  try {
+    const r = await fetch(`/api/meetings?q=${encodeURIComponent(query || "")}`);
+    data = await r.json();
+  } catch (e) { return; }
+  const list = $("meetings-list");
+  list.innerHTML = "";
+  const meetings = data.meetings || [];
+  if (meetings.length === 0) {
+    const p = document.createElement("p");
+    p.className = "meetings__empty";
+    p.textContent = query ? "Sin resultados." : "Tus transcripciones aparecerán aquí.";
+    list.appendChild(p);
+    return;
+  }
+  let lastGroup = "";
+  for (const m of meetings) {
+    const group = fmtMeetingDate(m.created_at);
+    if (group !== lastGroup) {
+      const g = document.createElement("div");
+      g.className = "meetings__group";
+      g.textContent = group;
+      list.appendChild(g);
+      lastGroup = group;
+    }
+    const item = document.createElement("div");
+    item.className = "meeting-item" + (m.id === state.meetingId ? " is-active" : "");
+    item.dataset.id = m.id;
+    const body = document.createElement("div");
+    body.className = "meeting-item__body";
+    const t = document.createElement("span");
+    t.className = "meeting-item__title";
+    t.textContent = m.title;
+    const meta = document.createElement("span");
+    meta.className = "meeting-item__meta";
+    const time = new Date(m.created_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+    meta.textContent = `${time} · ${fmtDuration(m.duration)}${m.has_notes ? " · 📝" : ""}`;
+    body.append(t, meta);
+    const dots = document.createElement("button");
+    dots.type = "button";
+    dots.className = "meeting-item__dots";
+    dots.textContent = "⋮";
+    dots.title = "Opciones";
+    dots.addEventListener("click", (e) => { e.stopPropagation(); showMeetingMenu(dots, m); });
+    item.append(body, dots);
+    item.addEventListener("click", () => openMeeting(m.id));
+    list.appendChild(item);
+  }
+}
+
+function resetChatPanel() {
+  state.chatHistory = [];
+  state.lastAnswer = "";
+  $("chat-log").innerHTML = "";
+}
+
+function enterMeetingView(title) {
+  $("meeting-title").value = title || state.baseFilename;
+  setStepEnabled("step-result", true);
+  setStepEnabled("step-ai", true);
+  showView("meeting");
+  selectVtab("notes");
+  loadMeetings($("meeting-search").value.trim());
+}
+
+async function openMeeting(id) {
+  let m;
+  try {
+    const r = await fetch(`/api/meetings/${id}`);
+    if (!r.ok) { toast("No se pudo abrir la reunión."); return; }
+    m = await r.json();
+  } catch (e) { toast("No se pudo contactar al servidor."); return; }
+  state.meetingId = m.id;
+  state.segments = m.segments || [];
+  state.meta.language = m.language;
+  state.meta.duration = m.duration;
+  state.meta.prob = 1;
+  state.baseFilename = m.title.replace(/[^\wáéíóúñ -]/gi, "").trim() || "reunion";
+  state.chosen = null;
+  $("out-plain").textContent = toPlain();
+  renderTsList();
+  setupPlayer();
+  if (m.has_audio) {
+    // Reopened meetings play from the locally stored copy on the server.
+    const p = $("player");
+    p.src = `/api/meetings/${m.id}/audio`;
+    p.hidden = false;
+  }
+  $("result-meta").textContent =
+    `${fmtMeetingDate(m.created_at)} · idioma ${m.language} · ${fmtDuration(m.duration)}`;
+  resetChatPanel();
+  if (m.notes) {
+    const bubble = addBubble("assistant", "");
+    bubble.innerHTML = renderMarkdown(m.notes);
+    addBubbleActions(bubble, m.notes);
+    state.chatHistory.push({ role: "assistant", content: m.notes });
+    state.lastAnswer = m.notes;
+  }
+  enterMeetingView(m.title);
+}
+
+// AI-generated meeting title (fire-and-forget; the filename title stays valid
+// if the model isn't ready). Only when the local model is already downloaded —
+// never trigger a GB download silently in the background.
+async function requestAutotitle() {
+  const loc = (state.ai && state.ai.local) || {};
+  const id = state.meetingId;
+  if (!id || !loc.available || !loc.cached) return;
+  try {
+    const r = await fetch(`/api/meetings/${id}/autotitle`, { method: "POST" });
+    if (!r.ok) return;
+    const { title } = await r.json();
+    if (title && state.meetingId === id) $("meeting-title").value = title;
+    loadMeetings($("meeting-search").value.trim());
+  } catch (e) { /* keep the filename title */ }
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar ⋮ menu (rename / delete any meeting, Claude-style)
+// ---------------------------------------------------------------------------
+function closeCtxMenu() {
+  const el = $("ctx-menu");
+  if (el) el.remove();
+}
+
+function showMeetingMenu(anchor, meeting) {
+  closeCtxMenu();
+  const menu = document.createElement("div");
+  menu.id = "ctx-menu";
+  menu.className = "ctx-menu";
+  const mk = (label, cls, fn) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = cls;
+    b.textContent = label;
+    b.addEventListener("click", (e) => { e.stopPropagation(); closeCtxMenu(); fn(); });
+    return b;
+  };
+  menu.append(
+    mk("✏️ Renombrar", "ctx-menu__item", () => renameMeetingById(meeting.id, meeting.title)),
+    mk("🗑 Eliminar", "ctx-menu__item ctx-menu__item--danger", () => deleteMeetingById(meeting.id)),
+  );
+  const rect = anchor.getBoundingClientRect();
+  menu.style.top = `${rect.bottom + 4}px`;
+  menu.style.left = `${Math.max(8, rect.right - 150)}px`;
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener("click", closeCtxMenu, { once: true }), 0);
+}
+
+async function renameMeetingById(id, currentTitle) {
+  const title = prompt("Nuevo título:", currentTitle);
+  if (!title || !title.trim()) return;
+  try {
+    await fetch(`/api/meetings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: title.trim() }),
+    });
+  } catch (e) { toast("No se pudo renombrar."); return; }
+  if (state.meetingId === id) $("meeting-title").value = title.trim();
+  loadMeetings($("meeting-search").value.trim());
+}
+
+async function deleteMeetingById(id) {
+  if (!confirm("¿Borrar esta reunión de tu equipo? Esta acción no se puede deshacer.")) return;
+  try {
+    await fetch(`/api/meetings/${id}`, { method: "DELETE" });
+  } catch (e) { toast("No se pudo borrar."); return; }
+  toast("Reunión borrada.");
+  if (state.meetingId === id) {
+    state.meetingId = null;
+    showView("new");
+  }
+  loadMeetings($("meeting-search").value.trim());
+}
+
+// ---------------------------------------------------------------------------
+// Chat bubbles: thinking indicator + per-response actions
+// ---------------------------------------------------------------------------
+function setThinking(bubble, label) {
+  bubble.innerHTML = "";
+  const wrap = document.createElement("span");
+  wrap.className = "think";
+  const star = document.createElement("span");
+  star.className = "think__star";
+  star.textContent = "✳";
+  const txt = document.createElement("span");
+  txt.textContent = label;
+  wrap.append(star, txt);
+  bubble.appendChild(wrap);
+}
+
+// Remove [MM:SS] / [MM:SS–MM:SS] marks for a clean copy of the note text.
+function stripMarks(text) {
+  return text
+    .replace(/\[\d{1,2}:\d{2}(?::\d{2})?(?:\s*[–—-]\s*\d{1,2}:\d{2}(?::\d{2})?)?\]\s?/g, "")
+    .replace(/ {2,}/g, " ")
+    .trim();
+}
+
+function addBubbleActions(bubble, text) {
+  const row = document.createElement("div");
+  row.className = "bubble-actions";
+  const mk = (label, value) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "bubble-actions__btn";
+    b.textContent = label;
+    b.addEventListener("click", () =>
+      navigator.clipboard.writeText(value).then(() => toast("Copiado al portapapeles"))
+    );
+    return b;
+  };
+  row.append(mk("📋 Copiar", text), mk("Sin minutos", stripMarks(text)));
+  bubble.appendChild(row);
+}
+
+async function renameCurrentMeeting() {
+  const title = $("meeting-title").value.trim();
+  if (!state.meetingId || !title) return;
+  try {
+    await fetch(`/api/meetings/${state.meetingId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    loadMeetings($("meeting-search").value.trim());
+  } catch (e) { /* offline rename is non-fatal */ }
+}
+
+async function deleteCurrentMeeting() {
+  if (!state.meetingId) { showView("new"); return; }
+  if (!confirm("¿Borrar esta reunión de tu equipo? Esta acción no se puede deshacer.")) return;
+  try {
+    await fetch(`/api/meetings/${state.meetingId}`, { method: "DELETE" });
+  } catch (e) { toast("No se pudo borrar."); return; }
+  state.meetingId = null;
+  toast("Reunión borrada.");
+  showView("new");
+  loadMeetings($("meeting-search").value.trim());
+}
+
+async function autoSaveNotes() {
+  if (!state.meetingId || !state.lastAnswer) return;
+  try {
+    await fetch(`/api/meetings/${state.meetingId}/notes`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes: state.lastAnswer }),
+    });
+    loadMeetings($("meeting-search").value.trim()); // refresh the 📝 badge
+  } catch (e) { /* saving notes is best-effort */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -232,13 +552,14 @@ function refreshAiModels() {
 function chooseFile(file) {
   state.chosen = { kind: "file", file };
   state.baseFilename = file.name.replace(/\.[^.]+$/, "");
-  showChosen(`📤 ${file.name} · ${(file.size / 1048576).toFixed(1)} MB`);
+  // escapeHtml: filenames are OS-controlled input (Linux/macOS allow `<>`).
+  showChosen(`📤 ${escapeHtml(file.name)} · ${(file.size / 1048576).toFixed(1)} MB`);
 }
 function choosePath(path) {
   const name = path.split(/[\\/]/).pop() || "archivo";
   state.chosen = { kind: "path", path };
   state.baseFilename = name.replace(/\.[^.]+$/, "");
-  showChosen(`📁 ${name} <span class="muted">(${path})</span>`);
+  showChosen(`📁 ${escapeHtml(name)} <span class="muted">(${escapeHtml(path)})</span>`);
 }
 function showChosen(html) {
   const c = $("file-chosen");
@@ -312,9 +633,11 @@ function streamEvents(jobId) {
       state.meta.language = ev.language;
       state.meta.prob = ev.language_probability;
       state.meta.duration = ev.duration;
+      state.meetingId = ev.meeting_id || null; // saved in the local library
       setProgress(1, `100% · completado en ${fmtDuration(ev.duration / 1)}`);
       es.close();
       renderResults();
+      requestAutotitle(); // AI names the meeting (like chat apps do)
     } else if (ev.type === "error") {
       es.close();
       showTranscribeError(ev.message);
@@ -353,10 +676,10 @@ function renderResults() {
   setupPlayer();
   $("result-meta").textContent =
     `Idioma: ${state.meta.language} (prob. ${state.meta.prob.toFixed(2)}) · duración ${fmtDuration(state.meta.duration)}`;
-  setStepEnabled("step-result", true);
-  setStepEnabled("step-ai", true);
   $("btn-transcribe").disabled = false;
-  $("step-result").scrollIntoView({ behavior: "smooth", block: "start" });
+  $("progress-wrap").hidden = true;
+  resetChatPanel();
+  enterMeetingView(state.baseFilename);
 }
 
 function renderTsList() {
@@ -400,13 +723,19 @@ function activateResultTab(key) {
   );
 }
 
-// Seek an <audio> element robustly. Blob audio often reports duration
-// Infinity until the file is scanned, which makes a plain `currentTime = x`
-// get ignored — so we wait for metadata and, if needed, scan to the end first.
+// Seek an <audio> element robustly. Two traps handled here:
+// 1. AI answers may cite a timestamp at/after the real end of the audio
+//    (models round up). Seeking there lands on the very end and playback
+//    stops instantly ("the audio cuts off") — so clamp just before the end.
+// 2. Blob audio can report duration Infinity until scanned; the scan-to-end
+//    trick must be muted or the jump is audible, and we wait for `seeked`
+//    (not `timeupdate`) so repeated clicks don't stack stale listeners.
 function seekAudioTo(p, sec) {
   const apply = () => {
     try {
-      p.currentTime = sec;
+      const d = p.duration;
+      const t = isFinite(d) && d > 0 ? Math.min(Math.max(0, sec), Math.max(0, d - 0.3)) : sec;
+      p.currentTime = t;
       p.play().catch(() => {});
     } catch (e) { /* ignore */ }
   };
@@ -414,9 +743,15 @@ function seekAudioTo(p, sec) {
     if (isFinite(p.duration) && p.duration > 0) {
       apply();
     } else {
-      const onUpdate = () => { p.removeEventListener("timeupdate", onUpdate); apply(); };
-      p.addEventListener("timeupdate", onUpdate);
-      try { p.currentTime = 1e7; } catch (e) { /* ignore */ }
+      const wasMuted = p.muted;
+      p.muted = true;
+      const onSeeked = () => {
+        p.removeEventListener("seeked", onSeeked);
+        p.muted = wasMuted;
+        apply();
+      };
+      p.addEventListener("seeked", onSeeked);
+      try { p.currentTime = 1e7; } catch (e) { p.muted = wasMuted; }
     }
   };
   if (p.readyState >= 1) ready();
@@ -429,6 +764,7 @@ function seekAudioTo(p, sec) {
 function seekTo(sec) {
   const p = $("player");
   if (p && !p.hidden && p.getAttribute("src")) seekAudioTo(p, sec);
+  selectVtab("transcript"); // reveal the transcript panel before scrolling
   activateResultTab("ts");
   let target = null;
   for (const line of document.querySelectorAll("#out-ts .ts-line")) {
@@ -455,23 +791,30 @@ function addBubble(role, text) {
   return div;
 }
 
-async function sendChat(prompt) {
-  const key = $("ai-key").value.trim();
-  if (!key) { toast("Pega tu API key arriba para usar el chat."); return; }
+// `displayText` (optional) is what the user sees in their bubble — for quick
+// actions it's the button label; the full engineered prompt stays internal.
+async function sendChat(prompt, displayText) {
   if (!prompt.trim()) return;
 
-  addBubble("user", prompt);
+  addBubble("user", displayText || prompt);
   state.chatHistory.push({ role: "user", content: prompt });
-  const bubble = addBubble("assistant", "…");
+  // First use downloads the model (~GBs): without a heads-up the bubble sits
+  // on the thinking indicator for minutes and looks frozen.
+  const loc = (state.ai && state.ai.local) || {};
+  const firstUse = loc.available && !loc.cached;
+  const bubble = addBubble("assistant", "");
+  setThinking(
+    bubble,
+    firstUse ? "Descargando el modelo de IA (solo la primera vez)…" : "Pensando…"
+  );
+  if (firstUse) loc.cached = true; // only announce once per session
   let answer = "";
 
   const body = {
-    provider: $("ai-provider").value,
-    model: $("ai-model").value,
-    api_key: key,
     transcript_timestamped: toTimestamped(),
     language: state.meta.language,
     duration: state.meta.duration,
+    meeting_id: state.meetingId || "", // lets the server reuse condensed notes
     history: state.chatHistory,
   };
 
@@ -495,13 +838,23 @@ async function sendChat(prompt) {
         if (!line.startsWith("data:")) continue;
         const payload = JSON.parse(line.slice(5).trim());
         if (payload.delta) { answer += payload.delta; bubble.textContent = answer; }
+        else if (payload.phase === "map") {
+          const round = payload.round > 1 ? ` · pasada ${payload.round}` : "";
+          setThinking(bubble, `Audio largo: analizando parte ${payload.current}/${payload.total}${round}…`);
+        }
+        else if (payload.phase === "combine") {
+          setThinking(bubble, "Audio largo: uniendo las notas (última fase, se guarda para las próximas preguntas)…");
+        }
         else if (payload.error) { bubble.textContent = `❌ ${payload.error}`; }
       }
     }
     if (answer) {
       bubble.innerHTML = renderMarkdown(answer); // render once complete (bold, bullets, [MM:SS])
+      addBubbleActions(bubble, answer); // 📋 copiar / copiar sin minutos
       state.chatHistory.push({ role: "assistant", content: answer });
-    } else if (bubble.textContent === "…") {
+      state.lastAnswer = answer;
+      autoSaveNotes(); // persist the note with the meeting (local library)
+    } else if (!bubble.textContent.startsWith("❌")) {
       bubble.textContent = "(sin respuesta)";
     }
   } catch (e) {
@@ -579,9 +932,31 @@ async function togglePause(mode) {
   }
 }
 
+// Live draft transcript (SSE) shown while recording.
+let liveES = null;
+function openLiveStream() {
+  $("rec-live-text").textContent = "";
+  $("rec-live-panel").hidden = false;
+  liveES = new EventSource("/api/record/live");
+  liveES.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    if (ev.done) { closeLiveStream(false); return; }
+    if (!ev.text) return;
+    const el = $("rec-live-text");
+    el.textContent += (el.textContent ? "\n" : "") + `[${fmtTs(ev.start)}] ${ev.text}`;
+    el.scrollTop = el.scrollHeight;
+  };
+  liveES.onerror = () => closeLiveStream(false);
+}
+function closeLiveStream(hidePanel) {
+  if (liveES) { liveES.close(); liveES = null; }
+  if (hidePanel) $("rec-live-panel").hidden = true;
+}
+
 async function startRecording(mode) {
   if (rec.active) return;
   const includeMic = mode === "meeting" ? $("rec-mic").checked : true;
+  let data;
   try {
     const r = await fetch("/api/record/start", {
       method: "POST",
@@ -589,10 +964,12 @@ async function startRecording(mode) {
       body: JSON.stringify({ mode, include_mic: includeMic }),
     });
     if (!r.ok) { toast(safeDetail(await r.text()) || "No se pudo iniciar la grabación."); return; }
+    data = await r.json();
     rec.active = true;
     rec.mode = mode;
     setRecUI(mode, true);
     startTimer(mode);
+    if (data.live) openLiveStream();
   } catch (e) {
     toast("No se pudo contactar al servidor para grabar.");
   }
@@ -606,17 +983,18 @@ async function stopRecording(mode) {
     const r = await fetch("/api/record/stop", { method: "POST" });
     if (!r.ok) {
       toast(safeDetail(await r.text()) || "No se pudo detener la grabación.");
-      rec.active = false; setRecUI(mode, false);
+      rec.active = false; setRecUI(mode, false); closeLiveStream(true);
       return;
     }
     data = await r.json();
   } catch (e) {
     toast("No se pudo contactar al servidor.");
-    rec.active = false; setRecUI(mode, false);
+    rec.active = false; setRecUI(mode, false); closeLiveStream(true);
     return;
   }
   rec.active = false;
   setRecUI(mode, false);
+  closeLiveStream(true); // the definitive transcription replaces the draft
 
   // Hand the recorded WAV to the existing transcription flow and auto-start.
   const label = mode === "meeting" ? "reunión" : "nota de voz";
@@ -682,9 +1060,42 @@ function maybeNotifyMeeting(app) {
 // Wire up
 // ---------------------------------------------------------------------------
 function init() {
+  applyTheme(currentTheme());
+  $("theme-toggle").addEventListener("click", toggleTheme);
   wireTabs("data-tab", "data-panel");
   wireTabs("data-rtab", "data-rpanel");
   loadHardware();
+  loadMeetings(); // sidebar library — past work survives reloads and restarts
+
+  // Sidebar: new transcription + search
+  $("btn-new").addEventListener("click", () => {
+    state.meetingId = null;
+    showView("new");
+    loadMeetings($("meeting-search").value.trim());
+  });
+  let searchT;
+  $("meeting-search").addEventListener("input", (e) => {
+    clearTimeout(searchT);
+    searchT = setTimeout(() => loadMeetings(e.target.value.trim()), 250);
+  });
+
+  // Meeting header: rename + delete; Notas ⟷ Transcripción toggle
+  $("meeting-title").addEventListener("change", renameCurrentMeeting);
+  $("btn-del-meeting").addEventListener("click", deleteCurrentMeeting);
+  document.querySelectorAll("[data-vtab]").forEach((b) =>
+    b.addEventListener("click", () => selectVtab(b.getAttribute("data-vtab")))
+  );
+
+  // Note actions: copy / download the last AI note
+  $("note-copy").addEventListener("click", () => {
+    if (!state.lastAnswer) { toast("Genera primero una nota (Resumen, Acta…)."); return; }
+    navigator.clipboard.writeText(state.lastAnswer).then(() => toast("Nota copiada"));
+  });
+  $("note-download").addEventListener("click", () => {
+    if (!state.lastAnswer) { toast("Genera primero una nota (Resumen, Acta…)."); return; }
+    const title = $("meeting-title").value.trim() || state.baseFilename;
+    download(`# ${title}\n\n${state.lastAnswer}\n`, "md", "text/markdown");
+  });
 
   // file input + drag/drop
   const dz = $("dropzone");
@@ -739,7 +1150,6 @@ function init() {
   });
 
   // AI
-  $("ai-provider").addEventListener("change", refreshAiModels);
   $("chat-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const v = $("chat-input").value;

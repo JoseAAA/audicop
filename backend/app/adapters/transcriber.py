@@ -27,71 +27,18 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.adapters.cuda_dll import ensure_cuda_dll_search_path
 from app.core import config
 
 logger = logging.getLogger(__name__)
 
+# Set up the CUDA DLL search path BEFORE importing faster_whisper; re-ordering
+# this would break ctranslate2 on Windows when the CUDA libs come from PyPI
+# wheels. Shared with `local_llm` (llama.cpp needs the same DLLs).
+ensure_cuda_dll_search_path()
 
-def _ensure_cuda_dll_search_path() -> None:
-    """Make the bundled NVIDIA DLLs discoverable on Windows.
-
-    The faster-whisper docs explicitly state that the
-    ``pip install nvidia-cublas-cu12 nvidia-cudnn-cu12`` route is
-    "Linux only" — on Linux, ``LD_LIBRARY_PATH`` is auto-populated, but
-    on Windows the DLL loader is stricter:
-
-    - Python 3.8+ no longer searches ``PATH`` for ``.pyd`` dependencies.
-    - :func:`os.add_dll_directory` only helps when the loader uses the
-      ``LOAD_LIBRARY_SEARCH_USER_DIRS`` flag.
-    - ctranslate2's compiled extension calls plain ``LoadLibraryW`` from
-      C++ at decode time (when it actually needs cuBLAS), and that call
-      uses the legacy "default search order" — which IS controlled by
-      ``PATH``.
-
-    So we do BOTH:
-
-    1. ``os.add_dll_directory(bin)`` — covers Python-side imports.
-    2. Prepend ``bin`` to ``os.environ["PATH"]`` — covers the runtime
-       ``LoadLibrary`` calls from ctranslate2.
-
-    No-op on non-Windows systems. Idempotent: appending the same dir
-    twice is harmless because Windows deduplicates the search path.
-    """
-    if sys.platform != "win32":
-        return
-    nvidia_root = Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"
-    if not nvidia_root.is_dir():
-        logger.debug("nvidia/ not found under site-packages; skipping DLL setup.")
-        return
-
-    bin_dirs: list[str] = []
-    for sub in nvidia_root.iterdir():
-        bin_dir = sub / "bin"
-        if bin_dir.is_dir():
-            bin_dirs.append(str(bin_dir))
-
-    if not bin_dirs:
-        return
-
-    for path_str in bin_dirs:
-        try:
-            os.add_dll_directory(path_str)
-        except (OSError, FileNotFoundError):
-            logger.debug("os.add_dll_directory(%s) failed", path_str, exc_info=True)
-
-    existing_path = os.environ.get("PATH", "")
-    new_path = os.pathsep.join(bin_dirs)
-    if existing_path:
-        new_path = new_path + os.pathsep + existing_path
-    os.environ["PATH"] = new_path
-    logger.debug("Prepended NVIDIA bin dirs to PATH: %s", bin_dirs)
-
-
-_ensure_cuda_dll_search_path()
-
-# Imported AFTER the DLL path setup above; re-ordering this would break
-# ctranslate2 on Windows when the CUDA libs come from PyPI wheels.
 from faster_whisper import BatchedInferencePipeline, WhisperModel  # noqa: E402
+from faster_whisper.vad import VadOptions  # noqa: E402
 
 
 def _repo_id_for(model_size: str) -> str:
@@ -360,6 +307,20 @@ class Transcriber:
             ) from exc
         return self._model
 
+    def unload(self) -> None:
+        """Release the model so its VRAM/RAM can be reclaimed.
+
+        Audicop's phases are sequential: once transcription ends, the memory
+        belongs to the analysis LLM. Dropping the references lets ctranslate2
+        free the weights on garbage collection; the next transcription reloads
+        from the on-disk cache in seconds.
+        """
+        import gc
+
+        self._batched_pipeline = None
+        self._model = None
+        gc.collect()
+
     def _get_batched_pipeline(self, model: WhisperModel) -> BatchedInferencePipeline:
         """Return a cached :class:`BatchedInferencePipeline` over ``model``."""
         if self._batched_pipeline is None:
@@ -416,6 +377,19 @@ class Transcriber:
 
         model = self.load()
         prompt = initial_prompt or None
+        # Tuned Silero VAD (see config): only speech reaches the decoder, which
+        # is both faster and the main defense against silence hallucinations.
+        vad_parameters = (
+            VadOptions(
+                threshold=config.VAD_THRESHOLD,
+                neg_threshold=config.VAD_NEG_THRESHOLD,
+                min_speech_duration_ms=config.VAD_MIN_SPEECH_MS,
+                min_silence_duration_ms=config.VAD_MIN_SILENCE_MS,
+                speech_pad_ms=config.VAD_SPEECH_PAD_MS,
+            )
+            if vad_filter
+            else None
+        )
         try:
             if self.device == "cuda":
                 pipeline = self._get_batched_pipeline(model)
@@ -425,6 +399,8 @@ class Transcriber:
                     task=task,
                     beam_size=beam_size,
                     vad_filter=vad_filter,
+                    vad_parameters=vad_parameters,
+                    no_speech_threshold=config.NO_SPEECH_THRESHOLD,
                     initial_prompt=prompt,
                     batch_size=config.DEFAULT_BATCH_SIZE,
                 )
@@ -435,6 +411,8 @@ class Transcriber:
                     task=task,
                     beam_size=beam_size,
                     vad_filter=vad_filter,
+                    vad_parameters=vad_parameters,
+                    no_speech_threshold=config.NO_SPEECH_THRESHOLD,
                     initial_prompt=prompt,
                 )
         except Exception as exc:

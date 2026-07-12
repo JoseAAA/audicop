@@ -65,9 +65,15 @@ echo "==> uv: $("${UV[@]}" --version)"
 # timeout is easy to exceed behind a proxy.
 export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
 
-SYNC_ARGS=()
-if command -v nvidia-smi >/dev/null 2>&1; then
-    echo "==> GPU NVIDIA detectada — instalando soporte CUDA (cuBLAS + cuDNN)"
+# Detect the GPU once: it decides both the CUDA extra and which llama.cpp wheel.
+HAS_GPU=0
+if command -v nvidia-smi >/dev/null 2>&1; then HAS_GPU=1; fi
+
+# --inexact so the launcher-managed llama-cpp-python (installed below, not in
+# the lock) survives the sync instead of being pruned.
+SYNC_ARGS=(--inexact)
+if [ "${HAS_GPU}" = "1" ]; then
+    echo "==> GPU NVIDIA detectada — soporte CUDA (cuBLAS + cuDNN + runtime)"
     SYNC_ARGS+=(--extra cuda)
 else
     echo "==> Sin GPU NVIDIA — instalación CPU-only"
@@ -76,6 +82,22 @@ fi
 echo "==> Sincronizando dependencias (la primera vez tarda; luego es instantáneo)…"
 "${UV[@]}" sync "${SYNC_ARGS[@]}"
 
+# Local, on-device AI (llama.cpp). No universal wheel exists — CPU and CUDA are
+# different builds on a separate index — so install the one matching this
+# machine. Idempotent: uv audits and skips once present. Non-fatal on failure:
+# only the local AI chat needs it; the rest of Audicop runs regardless.
+if [ "${HAS_GPU}" = "1" ]; then
+    LLAMA_INDEX="https://abetlen.github.io/llama-cpp-python/whl/cu124"
+    echo "==> Modo local (IA privada): instalando llama-cpp-python (CUDA)"
+else
+    LLAMA_INDEX="https://abetlen.github.io/llama-cpp-python/whl/cpu"
+    echo "==> Modo local (IA privada): instalando llama-cpp-python (CPU)"
+fi
+# Pinned to the tested release: reproducible installs and no surprise upgrades
+# from the wheel index. Bump deliberately (test CPU + CUDA) when upgrading.
+"${UV[@]}" pip install --no-build --extra-index-url "${LLAMA_INDEX}" "llama-cpp-python==0.3.32" \
+    || echo "ADVERTENCIA: no se pudo instalar el modo local (llama-cpp-python); el resto de Audicop funciona."
+
 # Open the browser shortly after the server comes up.
 ( sleep 2
   if command -v xdg-open >/dev/null 2>&1; then xdg-open "${URL}"
@@ -83,4 +105,6 @@ echo "==> Sincronizando dependencias (la primera vez tarda; luego es instantáne
   fi ) >/dev/null 2>&1 &
 
 echo "==> Lanzando Audicop en ${URL}"
-exec "${UV[@]}" run uvicorn app.main:app --host 127.0.0.1 --port "${PORT}"
+# --no-sync: we already synced above; this also stops `uv run` from pruning the
+# launcher-installed llama-cpp-python (it's not in the lock).
+exec "${UV[@]}" run --no-sync uvicorn app.main:app --host 127.0.0.1 --port "${PORT}"

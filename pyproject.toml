@@ -35,13 +35,9 @@ dependencies = [
     # pip-only via CFFI — no system deps, no PyTorch. BSD-3 licensed. Imported
     # lazily in adapters/capture.py so the app still runs if audio is unavailable.
     "soundcard>=0.4.3",
-    # AI chat/analysis (bring-your-own-key). Kept in the base set on purpose:
-    # `uv sync` prunes anything not installed, so an optional extra would be
-    # uninstalled on every normal launch and the AI panel would silently
-    # break. These SDKs are lightweight (no torch), so always installing them
-    # is the reliable choice for non-technical users.
-    "openai>=1.0",
-    "google-genai>=0.3",
+    # NOTE: AI analysis is 100% on-device (llama.cpp). There are NO cloud SDKs
+    # and no API keys. The local model engine (llama-cpp-python) is installed by
+    # the launcher per hardware — see the note below the extras and AGENTS.md §7.
 ]
 
 [project.optional-dependencies]
@@ -52,7 +48,18 @@ dependencies = [
 cuda = [
     "nvidia-cublas-cu12",
     "nvidia-cudnn-cu12>=9",
+    # cudart64_12.dll — required by llama.cpp's CUDA build (ggml-cuda). ctranslate2
+    # pulls cublas/cudnn but not the CUDA runtime, so the local LLM needs this too.
+    "nvidia-cuda-runtime-cu12",
 ]
+# NOTE: llama-cpp-python (the local, on-device AI) is intentionally NOT a
+# project dependency / extra. There is no universal wheel — the CPU and CUDA
+# builds are different packages hosted on a separate index — so a locked dep
+# can't express "CUDA wheel if the machine has a GPU". Instead the launcher
+# installs the right wheel per hardware via `uv pip install` after a
+# `uv sync --inexact` (so it survives the sync). See scripts/start.* and
+# AGENTS.md §7. `adapters/local_llm.py` imports it lazily and degrades to a
+# clear message when absent.
 dev = [
     "ruff>=0.6",
     "mypy>=1.10",
@@ -102,6 +109,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D"]
+# The citation tests embed a realistic timestamped transcript: long lines are
+# the fixture, not sloppy code.
+"tests/test_citations.py" = ["D", "E501", "RUF001"]
 # FastAPI's dependency-injection defaults (File()/Form()/Depends()) are the
 # documented pattern; B008 (call-in-default) is a false positive there.
 "backend/app/api/*" = ["D", "B008"]
@@ -130,12 +140,18 @@ module = [
     "app.adapters.hardware",
     "app.adapters.audio",
     "app.adapters.transcriber",
-    "app.adapters.llm",
+    "app.adapters.cuda_dll",
+    "app.adapters.local_llm",
     "app.adapters.capture",
     "app.adapters.meeting",
     "app.services.recommender",
     "app.services.formatting",
     "app.services.pipeline",
+    "app.services.transcript_store",
+    "app.services.citations",
+    "app.services.meeting_store",
+    "app.services.summarize",
+    "app.services.live",
     "app.prompts",
 ]
 disallow_untyped_defs = true
@@ -149,9 +165,8 @@ module = [
     "imageio_ffmpeg.*",
     "psutil.*",
     "torch.*",
-    "openai.*",
-    "google.*",
     "soundcard.*",
+    "llama_cpp.*",
 ]
 ignore_missing_imports = true
 

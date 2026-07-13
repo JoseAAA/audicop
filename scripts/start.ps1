@@ -101,12 +101,21 @@ if ($LASTEXITCODE -ne 0) {
 # different builds on a separate index -- so install the one matching this
 # machine. Idempotent: uv audits and skips once present. Non-fatal on failure:
 # only the local AI chat needs it; the rest of Audicop runs regardless.
+# Windows wheel choice (see AGENTS.md §7):
+#   - NVIDIA  -> CUDA wheel (fastest).
+#   - anything else -> the VULKAN wheel, NOT the `cpu` one. abetlen builds the
+#     Windows `cpu` wheel *native* on an AVX-512 CI runner, so it crashes
+#     (0xc000001d, illegal instruction) on the many consumer laptops that lack
+#     AVX-512 (Intel 12th gen+, Core Ultra, most Ryzen mobile). The `vulkan`
+#     wheel is built portable (-DGGML_NATIVE=off) AND offloads to any Vulkan
+#     GPU (Intel/AMD/NVIDIA iGPU or dGPU) -> runs everywhere, with a boost when
+#     a GPU is present. Its runtime (vulkan-1.dll) ships with every GPU driver.
 if ($HasGpu) {
     $LlamaIndex = "https://abetlen.github.io/llama-cpp-python/whl/cu124"
     Write-Host "==> Modo local (IA privada): instalando llama-cpp-python (CUDA)"
 } else {
-    $LlamaIndex = "https://abetlen.github.io/llama-cpp-python/whl/cpu"
-    Write-Host "==> Modo local (IA privada): instalando llama-cpp-python (CPU)"
+    $LlamaIndex = "https://abetlen.github.io/llama-cpp-python/whl/vulkan"
+    Write-Host "==> Modo local (IA privada): instalando llama-cpp-python (Vulkan: usa la iGPU o CPU, portable)"
 }
 # Pinned to the tested release: reproducible installs and no surprise upgrades
 # from the wheel index. Bump deliberately (test CPU + CUDA) when upgrading.

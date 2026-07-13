@@ -110,6 +110,35 @@ def test_load_surfaces_download_failure() -> None:
         obj.load()
 
 
+def test_load_illegal_instruction_is_friendly() -> None:
+    """An illegal-instruction crash (incompatible CPU) becomes a clear message,
+    not a raw 0xc000001d hex code — and points the user at re-running the launcher."""
+    obj = local_llm.LocalLLM(repo_id="r", filename="m.gguf")
+    fake_llama = MagicMock()
+    crash = OSError("[WinError -1073741795] Windows Error 0xc000001d")
+    crash.winerror = -1073741795  # type: ignore[attr-defined]
+    fake_llama.Llama.side_effect = crash
+    with (
+        patch.dict("sys.modules", {"llama_cpp": fake_llama}),
+        patch.object(local_llm, "ensure_downloaded", return_value=Path("m.gguf")),
+        pytest.raises(LLMError, match="no es compatible"),
+    ):
+        obj.load()
+
+
+def test_load_other_error_keeps_detail() -> None:
+    """A non-illegal-instruction load failure still surfaces the raw detail."""
+    obj = local_llm.LocalLLM(repo_id="r", filename="m.gguf")
+    fake_llama = MagicMock()
+    fake_llama.Llama.side_effect = RuntimeError("gguf corrupto")
+    with (
+        patch.dict("sys.modules", {"llama_cpp": fake_llama}),
+        patch.object(local_llm, "ensure_downloaded", return_value=Path("m.gguf")),
+        pytest.raises(LLMError, match="gguf corrupto"),
+    ):
+        obj.load()
+
+
 def test_get_active_only_when_loaded() -> None:
     """`get_active` returns the singleton only once its model is in memory."""
     inst = local_llm.get_local_llm(

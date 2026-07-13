@@ -50,6 +50,21 @@ def _tokens(text: str) -> set[str]:
     return set(_TOKEN_RE.findall(folded))
 
 
+def _is_bare_citation(line: str) -> bool:
+    """True if the line is only [MM:SS] mark(s) (+ bullet/space), no real text.
+
+    Small models sometimes emit a stray trailing ``[MM:SS]`` on its own line,
+    duplicating the mark already at the start of the sentence. That line adds
+    nothing, so it is dropped. Blank lines (no mark) are kept — they separate
+    paragraphs.
+    """
+    if not _MARK_RE.search(line) and not _RANGE_RE.search(line):
+        return False
+    leftover = _RANGE_RE.sub("", _MARK_RE.sub("", line)).strip()
+    leftover = re.sub(r"^([-*•]\s*|\d+\.\s*)", "", leftover).strip()
+    return leftover == ""
+
+
 @dataclass(frozen=True, slots=True)
 class _Entry:
     """One transcript line: its mark and its token set."""
@@ -128,10 +143,15 @@ class CitationFixer:
         self._buffer += chunk
         while "\n" in self._buffer:
             line, self._buffer = self._buffer.split("\n", 1)
-            yield self.fix_line(line) + "\n"
+            fixed = self.fix_line(line)
+            if _is_bare_citation(fixed):
+                continue  # drop stray standalone-mark lines (small-model artifact)
+            yield fixed + "\n"
 
     def flush(self) -> Iterator[str]:
         """Emit the (corrected) final line once the stream ends."""
         if self._buffer:
-            yield self.fix_line(self._buffer)
+            fixed = self.fix_line(self._buffer)
+            if not _is_bare_citation(fixed):
+                yield fixed
             self._buffer = ""

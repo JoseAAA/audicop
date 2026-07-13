@@ -13,6 +13,7 @@ FORMATO DE SALIDA:
 - [MM:SS] Compromiso — quién y cuándo (si se dijo).
 
 REGLAS:
+- SINTETIZA: MÁXIMO 5 viñetas por sección; agrupa lo relacionado, NUNCA una viñeta por minuto.
 - Toda línea empieza con su marca [MM:SS] tomada de la transcripción.
 - Si una sección queda vacía, escribe "No se mencionan".
 - Sin introducciones ni relleno: empieza directo con **Cliente y contexto:**.

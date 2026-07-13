@@ -359,6 +359,15 @@ LLM_MAPREDUCE_TOKEN_THRESHOLD: Final[int] = 4000
 LLM_CHUNK_PROMPT_OVERHEAD_TOKENS: Final[int] = 300
 LLM_CHUNK_OVERLAP_TOKENS: Final[int] = 100
 
+LLM_RETRIEVAL_MAX_CHARS: Final[int] = 8000
+"""Character budget for retrieved transcript excerpts on a free question.
+
+For a specific question on a long audio we answer from the transcript LINES
+that match the question (see :mod:`app.services.retrieve`), NOT from the lossy
+global summary — otherwise a dropped detail becomes a false "no se menciona".
+~8000 chars ≈ 2800 tokens, leaving room for the system prompt and the reply.
+"""
+
 LLM_SYNTHESIS_TARGET_TOKENS: Final[int] = 2500
 """Size the condensed notes are reduced to before the final answer pass.
 

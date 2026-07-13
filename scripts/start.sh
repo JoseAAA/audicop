@@ -86,12 +86,20 @@ echo "==> Sincronizando dependencias (la primera vez tarda; luego es instantáne
 # different builds on a separate index — so install the one matching this
 # machine. Idempotent: uv audits and skips once present. Non-fatal on failure:
 # only the local AI chat needs it; the rest of Audicop runs regardless.
-if [ "${HAS_GPU}" = "1" ]; then
+# Wheel choice per OS + GPU (see AGENTS.md §7):
+#   macOS           -> metal  (Apple GPU; universal on Apple Silicon)
+#   Linux + NVIDIA  -> cu124   (CUDA, fastest)
+#   Linux CPU-only  -> cpu     (already built portable, -DGGML_NATIVE=off)
+# Unlike Windows, the Linux `cpu` wheel is portable, so it needs no Vulkan.
+if [ "$(uname -s)" = "Darwin" ]; then
+    LLAMA_INDEX="https://abetlen.github.io/llama-cpp-python/whl/metal"
+    echo "==> Modo local (IA privada): instalando llama-cpp-python (Metal, GPU Apple)"
+elif [ "${HAS_GPU}" = "1" ]; then
     LLAMA_INDEX="https://abetlen.github.io/llama-cpp-python/whl/cu124"
     echo "==> Modo local (IA privada): instalando llama-cpp-python (CUDA)"
 else
     LLAMA_INDEX="https://abetlen.github.io/llama-cpp-python/whl/cpu"
-    echo "==> Modo local (IA privada): instalando llama-cpp-python (CPU)"
+    echo "==> Modo local (IA privada): instalando llama-cpp-python (CPU portable)"
 fi
 # Pinned to the tested release: reproducible installs and no surprise upgrades
 # from the wheel index. Bump deliberately (test CPU + CUDA) when upgrading.

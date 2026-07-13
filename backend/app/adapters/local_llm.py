@@ -39,6 +39,34 @@ class LLMError(RuntimeError):
     """Raised when the local model fails to download, load, or generate."""
 
 
+# STATUS_ILLEGAL_INSTRUCTION: ctypes surfaces it as this OSError.winerror on
+# Windows; POSIX raises SIGILL / "Illegal instruction". It means the installed
+# llama.cpp wheel uses a CPU instruction (e.g. AVX-512) this machine lacks.
+_ILLEGAL_INSTRUCTION_WINERROR = -1073741795  # 0xC000001D
+
+
+def _describe_load_failure(filename: str, exc: Exception) -> str:
+    """Turn a model-load exception into an actionable, user-facing message.
+
+    The one failure worth special-casing is an *illegal instruction* crash:
+    the prebuilt engine was compiled for CPU features this processor does not
+    have. Rather than a raw hex code, tell the user what to do and reassure
+    them the rest of Audicop (transcription) still works.
+    """
+    text = str(exc)
+    if getattr(exc, "winerror", None) == _ILLEGAL_INSTRUCTION_WINERROR or any(
+        token in text.lower() for token in ("0xc000001d", "-1073741795", "illegal instruction")
+    ):
+        return (
+            "Tu procesador no es compatible con el motor de IA que se instaló "
+            "(usa instrucciones de CPU que este equipo no tiene). Cierra Audicop "
+            "y vuelve a lanzarlo con `start.cmd` (Windows) o `./scripts/start.sh`: "
+            "el instalador pondrá una versión compatible. La transcripción sigue "
+            "funcionando; solo el análisis con IA local queda deshabilitado."
+        )
+    return f"No se pudo cargar el modelo local {filename!r}: {exc}"
+
+
 @dataclass(frozen=True, slots=True)
 class ChatMessage:
     """A single chat turn.
@@ -250,7 +278,7 @@ class LocalLLM:
                 verbose=False,
             )
         except Exception as exc:
-            raise LLMError(f"No se pudo cargar el modelo local {self.filename!r}: {exc}") from exc
+            raise LLMError(_describe_load_failure(self.filename, exc)) from exc
         return self._model
 
     def unload(self) -> None:

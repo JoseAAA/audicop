@@ -11,6 +11,7 @@ FORMATO DE SALIDA:
 - [MM:SS] Acción — Responsable: nombre (o "no se menciona").
 
 REGLAS:
+- SINTETIZA: MÁXIMO 5 puntos por sección; quédate con lo esencial, NUNCA una viñeta por minuto.
 - Toda línea empieza con su marca [MM:SS] tomada de la transcripción.
 - Si una sección queda vacía, escribe "Nada mencionado".
 - Sin introducciones ni relleno: empieza directo con la primera sección.

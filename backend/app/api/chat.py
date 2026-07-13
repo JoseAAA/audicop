@@ -27,7 +27,7 @@ from app.adapters import local_llm
 from app.adapters.hardware import detect_hardware
 from app.adapters.local_llm import ChatMessage, LLMError, LocalLLM
 from app.core import config
-from app.services import meeting_store, summarize, transcript_store
+from app.services import meeting_store, retrieve, summarize, transcript_store
 from app.services.citations import CitationFixer
 from app.services.recommender import recommend_llm
 
@@ -108,23 +108,48 @@ def chat(req: ChatRequest) -> StreamingResponse:
                 raise LLMError("No hay ninguna transcripción todavía. Transcribe un audio primero.")
             model = get_ready_model()
 
-            # Long audio → RECURSIVE map-reduce: condense chunk by chunk and,
-            # if the joined notes still exceed the budget (a 2-3 h meeting
-            # easily does), condense the notes again. Without this second
-            # round the final pass receives dozens of notes and echoes them
-            # instead of synthesizing. Marks stay valid: chunks are cut at
-            # line boundaries so every note carries an original [MM:SS].
+            # Quick actions (Resumen, Tareas…) send a "TAREA:"-prefixed prompt
+            # and want a GLOBAL view; a free question usually wants a SPECIFIC
+            # fact. That split decides how we build the context for long audios.
+            is_action = bool(messages) and messages[-1].content.startswith("TAREA:")
+            question = messages[-1].content if messages else ""
+
+            # Context strategy for long audio:
+            #   - free question -> RETRIEVE the transcript lines relevant to it
+            #     and answer over those real excerpts. Condensing first is lossy
+            #     and makes the model answer "no se menciona" to facts that ARE
+            #     in the recording (the detail was dropped when summarizing).
+            #   - quick action  -> RECURSIVE map-reduce: condense chunk by chunk
+            #     and, if the joined notes still exceed the budget (a 2-3 h
+            #     meeting easily does), condense again. Without it the final
+            #     pass gets dozens of notes and echoes them instead of
+            #     synthesizing. Marks stay valid: chunks cut at line boundaries.
             working = transcript
+            context_mode = "full"  # full | excerpts | condensed
             cache_key = ""
             if summarize.needs_map_reduce(transcript):
-                # Reuse notes condensed earlier for this same transcript —
-                # in-memory first, then the copy persisted with the meeting.
-                cache_key = hashlib.sha256(transcript.encode("utf-8")).hexdigest()
-                cached = _NOTES_CACHE.get(cache_key) or (
-                    meeting_store.get_condensed(req.meeting_id) if req.meeting_id else ""
+                excerpts = (
+                    ""
+                    if is_action
+                    else retrieve.search_transcript(
+                        transcript, question, max_chars=config.LLM_RETRIEVAL_MAX_CHARS
+                    )
                 )
-                if cached:
-                    working = cached
+                if excerpts:
+                    working = excerpts
+                    context_mode = "excerpts"
+                else:
+                    # Quick action, or a free question with no usable keywords
+                    # (e.g. "resume esto") -> fall back to condensed notes.
+                    # Reuse notes condensed earlier for this same transcript —
+                    # in-memory first, then the copy persisted with the meeting.
+                    context_mode = "condensed"
+                    cache_key = hashlib.sha256(transcript.encode("utf-8")).hexdigest()
+                    cached = _NOTES_CACHE.get(cache_key) or (
+                        meeting_store.get_condensed(req.meeting_id) if req.meeting_id else ""
+                    )
+                    if cached:
+                        working = cached
             round_no = 0
             while (
                 cache_key  # only long audios (above the map-reduce threshold)
@@ -208,17 +233,24 @@ def chat(req: ChatRequest) -> StreamingResponse:
                     duration_seconds=duration,
                 )
             )
-            if working is not transcript:
+            if context_mode == "condensed":
                 system += (
                     "\n\nIMPORTANTE: lo anterior es un RESUMEN CONDENSADO de "
                     "una reunión larga, no la transcripción completa. NO lo "
                     "copies: SINTETIZA y selecciona solo lo más importante de "
                     "toda la reunión, con sus marcas [MM:SS]."
                 )
-            # Quick actions come from prompt templates that all start with
-            # "TAREA:" and define an exact format → strict sampling. Free
+            elif context_mode == "excerpts":
+                system += (
+                    "\n\nIMPORTANTE: lo anterior son EXTRACTOS de la "
+                    "transcripción seleccionados por su relación con la "
+                    "pregunta (no es toda la reunión). Responde SOLO con lo que "
+                    "aparezca en estos extractos, citando su marca [MM:SS]. Si "
+                    "la respuesta no está aquí, dilo claramente."
+                )
+            # Quick actions define an exact format → strict sampling. Free
             # questions keep the regular preset.
-            strict = bool(messages) and messages[-1].content.startswith("TAREA:")
+            strict = is_action
             # Verify citations against the real (FULL) transcript as lines
             # complete: small models misattribute [MM:SS] marks (or drop
             # them), and the server holds the ground truth to fix that.

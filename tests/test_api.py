@@ -283,7 +283,12 @@ def test_chat_long_transcript_triggers_map_reduce(monkeypatch) -> None:
 
     fake_model = SimpleNamespace(stream_chat=fake_stream)
     long_transcript = "\n".join(f"[{i:02d}:00] bla bla bla bla bla" for i in range(20))
-    body_req = {**_CHAT_BODY, "transcript_timestamped": long_transcript}
+    # A quick action (TAREA:) takes the condense-the-whole-meeting path.
+    body_req = {
+        **_CHAT_BODY,
+        "transcript_timestamped": long_transcript,
+        "history": [{"role": "user", "content": "TAREA: Resume la reunión"}],
+    }
 
     with (
         patch.object(chat_mod.local_llm, "get_active", return_value=fake_model),
@@ -328,7 +333,11 @@ def test_chat_map_reduce_recurses_when_notes_still_long(monkeypatch) -> None:
     # Long lines so round-1 notes genuinely SHRINK the text (else the
     # no-progress guard stops the recursion).
     long_transcript = "\n".join(f"[{i:02d}:00] " + "palabra " * 40 for i in range(20))
-    body_req = {**_CHAT_BODY, "transcript_timestamped": long_transcript}
+    body_req = {
+        **_CHAT_BODY,
+        "transcript_timestamped": long_transcript,
+        "history": [{"role": "user", "content": "TAREA: Resume la reunión"}],
+    }
 
     with (
         patch.object(chat_mod.local_llm, "get_active", return_value=fake_model),
@@ -364,7 +373,11 @@ def test_chat_condensed_notes_are_cached_across_questions(monkeypatch) -> None:
 
     fake_model = SimpleNamespace(stream_chat=fake_stream)
     long_transcript = "\n".join(f"[{i:02d}:00] " + "palabra " * 40 for i in range(10))
-    body_req = {**_CHAT_BODY, "transcript_timestamped": long_transcript}
+    body_req = {
+        **_CHAT_BODY,
+        "transcript_timestamped": long_transcript,
+        "history": [{"role": "user", "content": "TAREA: Resume la reunión"}],
+    }
 
     with (
         patch.object(chat_mod.local_llm, "get_active", return_value=fake_model),
@@ -382,6 +395,47 @@ def test_chat_condensed_notes_are_cached_across_questions(monkeypatch) -> None:
     assert not any('"phase"' in p for p in _sse_payloads(body2))
     assert any("Respuesta" in p for p in _sse_payloads(body2))
     chat_mod._NOTES_CACHE.clear()
+
+
+def test_chat_free_question_retrieves_from_full_transcript(monkeypatch) -> None:
+    """A specific question on a long audio is answered from the transcript
+    EXCERPTS that match it — never from lossy condensed notes (which would drop
+    the fact and wrongly answer 'no se menciona'). No condensation runs."""
+    from app.core import config as cfg
+
+    monkeypatch.setattr(cfg, "LLM_MAPREDUCE_TOKEN_THRESHOLD", 50)
+
+    seen_system: list[str] = []
+
+    def fake_stream(**kwargs: object):
+        content = kwargs["messages"][-1].content  # type: ignore[index]
+        if "TAREA: Condensa" in content:
+            raise AssertionError("a free question must NOT trigger condensation")
+        seen_system.append(str(kwargs["system"]))
+        return iter(["IBT nació en 2014 [18:43]."])
+
+    fake_model = SimpleNamespace(stream_chat=fake_stream)
+    lines = [f"[{i:02d}:00] relleno de la reunion numero {i}" for i in range(30)]
+    lines[18] = "[18:43] En 2014, IBT nació con tecnología de punta."
+    long_transcript = "\n".join(lines)
+    body_req = {
+        **_CHAT_BODY,
+        "transcript_timestamped": long_transcript,
+        "history": [{"role": "user", "content": "¿cuándo se fundó IBT?"}],
+    }
+
+    with (
+        patch.object(chat_mod.local_llm, "get_active", return_value=fake_model),
+        TestClient(app) as client,
+        client.stream("POST", "/api/chat", json=body_req) as resp,
+    ):
+        body = "".join(resp.iter_text())
+
+    payloads = _sse_payloads(body)
+    assert not any('"phase"' in p for p in payloads)  # no map/combine phases
+    # The retrieved excerpt (with the founding line) reached the model's context.
+    assert any("[18:43]" in s and "2014" in s for s in seen_system)
+    assert any("2014" in p for p in payloads)  # and the answer used it
 
 
 def test_chat_short_transcript_stays_single_pass() -> None:

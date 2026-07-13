@@ -27,6 +27,25 @@ def test_parse_transcript_extracts_all_lines() -> None:
     assert [e.mark for e in entries] == ["00:00", "00:28", "00:57", "01:26", "01:55", "02:28"]
 
 
+def test_drops_trailing_bare_mark_line() -> None:
+    """A stray standalone '[MM:SS]' line (small-model artifact) is dropped,
+    while the real sentence and the blank separator are kept."""
+    fixer = CitationFixer(TRANSCRIPT)
+    stream = "[01:55] La saturación es 97 en aire ambiente.\n\n[01:55]"
+    out = "".join(fixer.feed(stream)) + "".join(fixer.flush())
+    assert out.count("[01:55]") == 1
+    assert "La saturación" in out
+    assert not out.rstrip().endswith("[01:55]")
+
+
+def test_keeps_blank_lines_and_normal_text() -> None:
+    """Dropping bare marks must not eat paragraph breaks or plain lines."""
+    fixer = CitationFixer(TRANSCRIPT)
+    stream = "Primera parte.\n\nSegunda parte.\n"
+    out = "".join(fixer.feed(stream)) + "".join(fixer.flush())
+    assert out == "Primera parte.\n\nSegunda parte.\n"
+
+
 def test_adds_missing_mark_saturation() -> None:
     """Real failed output #1: fact stated with no mark at all."""
     out = _fix("La saturación es de 97 en aire ambiente.")

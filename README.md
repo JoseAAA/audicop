@@ -72,7 +72,9 @@ segundos. Se abre solo en **http://localhost:8000**.
 <summary>¿Qué hace el script por debajo?</summary>
 
 1. Instala [`uv`](https://docs.astral.sh/uv/) (gestor de Python) si no lo tienes.
-2. Detecta tu GPU NVIDIA y, si la hay, añade el soporte CUDA automáticamente.
+2. Detecta tu **SO y GPU** e instala el motor de IA local adecuado —
+   **CUDA** (NVIDIA), **Vulkan** (GPU Intel/AMD o CPU en Windows), **Metal**
+   (Mac) o **CPU** (Linux); con NVIDIA añade además las libs CUDA para Whisper.
 3. Crea un entorno aislado con versiones fijas (`uv.lock`).
 4. Levanta el servidor local (FastAPI + uvicorn) y abre el navegador.
 
@@ -183,14 +185,40 @@ consumen una parte, y respetarla evita que el equipo se ahogue.
 
 Tras transcribir, aparece el panel **"Analiza con IA"**. Corre **en tu propio
 equipo** con un modelo pequeño pero potente (Qwen/Llama vía llama.cpp), elegido
-automáticamente según tu hardware (GPU si la hay, si no CPU):
+automáticamente según tu hardware:
 
 1. Pulsa un atajo (Resumen, Puntos clave, Tareas y acuerdos, Acta) o escribe tu
    propia pregunta. Las respuestas **citan los minutos** `[MM:SS]`.
 2. **Sin clave y sin nube**: ni el audio ni el texto salen de tu equipo.
 
-> La primera vez se descarga el modelo (~1–2 GB según tu equipo); luego es
-> instantáneo y funciona sin internet.
+**Motor por sistema** — el launcher instala el backend correcto, sin que
+compiles nada:
+
+| Sistema | Con NVIDIA | GPU Intel/AMD o solo CPU        |
+|---------|------------|--------------------------------|
+| Windows | CUDA       | **Vulkan** (usa la iGPU; si no, CPU) |
+| Linux   | CUDA       | CPU (portable)                 |
+| macOS   | —          | Metal (GPU Apple)              |
+
+> En Windows se usa el wheel **Vulkan** a propósito: corre en cualquier CPU con
+> AVX2 (desde ~2013) y además acelera en la GPU integrada Intel/AMD. El wheel
+> "CPU" genérico de Windows exige **AVX-512**, que las laptops de consumo
+> modernas (Intel 12ª gen+, Core Ultra, casi todo Ryzen móvil) **no** tienen.
+
+**Modelo según memoria libre** (se reservan ~2 GB para el SO):
+
+| Recurso libre                  | Modelo de IA          |
+|--------------------------------|-----------------------|
+| GPU, VRAM libre ≥ 4.5 GB       | Qwen3 4B (el mejor)   |
+| GPU, VRAM libre 3–4.5 GB       | Qwen2.5 3B            |
+| Solo CPU, RAM libre ≥ 7 GB     | Qwen2.5 3B            |
+| Solo CPU, RAM libre 4.5–7 GB   | Qwen2.5 1.5B          |
+| Solo CPU, RAM libre 3.5–4.5 GB | Llama 3.2 1B          |
+
+> **Recomendado: 16 GB de RAM** (o cualquier GPU) para el análisis con IA sin
+> cerrar apps. Con 8 GB la transcripción va bien, pero el chat puede quedar en
+> el modelo más pequeño o pedirte cerrar programas. La 1ª vez se descarga el
+> modelo (~2–2.5 GB); luego es instantáneo y funciona sin internet.
 
 ¿Prefieres otra IA? Copia el texto (con o sin timestamps) y pégalo donde quieras.
 
@@ -233,7 +261,8 @@ y rechaza peticiones de orígenes externos (anti-CSRF). Detalle en
 | Errores raros al instalar / crear el `.venv` | ¿El proyecto está en **OneDrive/Dropbox/Google Drive**? El launcher te avisa. Clónalo en una ruta local (`C:\dev\audicop`) y reintenta. |
 | `ffmpeg failed to convert` | El origen está corrupto o usa un códec raro. Reconviértelo o ábrelo en VLC. |
 | `CUDA out of memory` | Abre **Modo avanzado** y baja de modelo (`medium`/`small`). |
-| El chat IA local no está disponible | Relanza `start.cmd`/`start.sh`: instala el modelo local (`llama-cpp-python`) según tu hardware (CUDA si hay GPU, si no CPU). Si tienes poca RAM libre y sin GPU, cierra apps y recarga. |
+| El chat IA local no está disponible | Relanza `start.cmd`/`start.sh`: instala el motor local (`llama-cpp-python`) según tu sistema (CUDA con NVIDIA, Vulkan en Windows, Metal en Mac, CPU en Linux). Si tienes poca RAM libre y sin GPU, cierra apps y recarga. |
+| "Tu procesador no es compatible con el motor de IA" | Tu CPU no soporta el motor instalado. Relanza `start.cmd`/`start.sh` para poner la versión portable (en Windows, Vulkan). La **transcripción sigue funcionando**; solo se deshabilita el análisis con IA local. |
 | La reunión no capta a los demás | El loopback graba lo que suena por tus **altavoces**. Con auriculares Bluetooth o salidas raras puede no capturarse; usa los altavoces del equipo. |
 | Me silencié en Meet pero igual me grabó | El micrófono se graba a nivel del sistema; silenciarte en la app no lo detiene. Usa **Pausar** o desmarca "Incluir mi micrófono". |
 | "Este equipo no tiene captura de audio disponible" | No hay dispositivos de audio (o reiniciaste el server con código viejo). Reinicia con `start.cmd`/`start.sh`. |
@@ -251,7 +280,7 @@ y rechaza peticiones de orígenes externos (anti-CSRF). Detalle en
 | Grabación       | soundcard (mic + loopback del sistema, BSD-3, sin torch)|
 | Hardware        | psutil + nvidia-smi                                     |
 | GPU (opcional)  | nvidia-cublas-cu12 + nvidia-cudnn-cu12                  |
-| IA (análisis)   | llama-cpp-python (modelo local GGUF; sin nube, sin clave)|
+| IA (análisis)   | llama-cpp-python (GGUF local; CUDA/Vulkan/Metal/CPU; sin nube, sin clave)|
 | Tooling         | uv · ruff · mypy · pytest                               |
 
 Créditos: [faster-whisper](https://github.com/SYSTRAN/faster-whisper),
@@ -268,9 +297,10 @@ Créditos: [faster-whisper](https://github.com/SYSTRAN/faster-whisper),
 - [x] Análisis con IA **100% local** (llama.cpp + Qwen/Llama, elegido por hardware).
 - [x] `large-v3-turbo` + batched (GPU) + pista de vocabulario.
 - [x] Grabación local: tu voz y reuniones (mic + audio del sistema).
+- [x] Resumen map-reduce recursivo para audios largos (1–3 h), cacheado por reunión.
+- [x] Motor de IA multiplataforma (CUDA/Vulkan/Metal/CPU) para Windows, Linux y macOS.
 - [ ] Diarización (separar hablantes): "Tú vs los demás" + sherpa-onnx.
 - [ ] Proceso por lotes (varias carpetas).
-- [ ] Resumen map-reduce para audios largos (que exceden el contexto del modelo).
 
 Issues y PRs bienvenidos. Convenciones del proyecto en [AGENTS.md](AGENTS.md)
 y [DESIGN.md](DESIGN.md).

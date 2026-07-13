@@ -172,11 +172,26 @@ Extras opcionales:
 - `dev` = `ruff`, `mypy`, `pytest`, `pytest-cov`.
 
 **IA local (`llama-cpp-python`) — la instala el LAUNCHER, no está en el lock.**
-No hay wheel universal: el build CPU y el CUDA son paquetes distintos en un
-índice aparte (`abetlen.github.io/llama-cpp-python/whl/{cpu,cu124}`) y un lock
-no puede expresar "wheel CUDA si hay GPU". Por eso `scripts/start.*` hace
+No hay wheel universal: cada backend es un paquete distinto en un índice aparte
+(`abetlen.github.io/llama-cpp-python/whl/{cpu,cu124,vulkan,metal}`) y un lock no
+puede expresar "wheel CUDA si hay GPU". Por eso `scripts/start.*` hace
 `uv sync --inexact` (para que el sync no lo pode) y luego `uv pip install` el
-wheel correcto según `nvidia-smi`, y lanza con `uv run --no-sync`.
+wheel correcto **según SO + GPU**, y lanza con `uv run --no-sync`:
+
+| SO | NVIDIA | resto (GPU AMD/Intel o solo CPU) |
+| --- | --- | --- |
+| Windows | `cu124` | **`vulkan`** |
+| Linux | `cu124` | `cpu` (ya es portable) |
+| macOS | — | `metal` |
+
+⚠️ En Windows **no** se usa el índice `cpu`: abetlen lo compila *native* en un
+runner de CI con AVX-512 (su workflow pone `-DGGML_NATIVE=off` solo en
+Linux/macOS), así que crashea con `0xc000001d` (illegal instruction) en las
+laptops sin AVX-512 (Intel 12ª gen+, Core Ultra, casi todo Ryzen móvil). El
+wheel `vulkan` es portable (`-DGGML_NATIVE=off`) y además descarga capas a
+cualquier GPU Vulkan (iGPU/dGPU Intel/AMD/NVIDIA). `local_llm._describe_load_failure`
+traduce ese fallo a un mensaje claro si aun así ocurre.
+
 `adapters/local_llm.py` lo importa perezosamente (degrada con mensaje si falta)
 y `adapters/cuda_dll.py` pone las DLLs NVIDIA en el PATH (compartido con el
 transcriber) antes de importarlo.
